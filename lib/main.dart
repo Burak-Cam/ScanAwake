@@ -273,22 +273,57 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _handleAlarmButton() async {
     if (isAlarmActive) {
+      // Alarmı İptal Etme Kısmı
       await Alarm.stop(42);
-      setState(() => isAlarmActive = false);
-      if(mounted) _showSnack(AppStrings.get('alarm_cancelled', currentLang));
+      setState(() {
+        isAlarmActive = false;
+        selectedTime = TimeOfDay.now(); 
+      });
+      if (mounted) _showSnack(AppStrings.get('alarm_cancelled', currentLang));
     } else {
+      // Alarm Kurma Kısmı
       if (savedBarcodes.isEmpty) {
         _showSnack(AppStrings.get('add_item_first', currentLang));
         HapticFeedback.heavyImpact();
         return;
       }
+
       final now = DateTime.now();
       DateTime dateTime = DateTime(now.year, now.month, now.day, selectedTime.hour, selectedTime.minute);
-      if (dateTime.isBefore(now)) dateTime = dateTime.add(const Duration(days: 1));
+      
+      // Eğer seçilen saat şu andan önceyse (mesela saat 14:00 iken 08:00 seçildiyse), yarına kur.
+      if (dateTime.isBefore(now)) {
+        dateTime = dateTime.add(const Duration(days: 1));
+      }
 
       await scheduleAlarmFn(dateTime, false, true, currentLang);
       setState(() => isAlarmActive = true);
-      if (mounted) _showSnack("${AppStrings.get('alarm_set', currentLang)} ${selectedTime.format(context)}!");
+
+      // --- YENİ EKLENEN KISIM: KALAN SÜRE HESAPLAMA ---
+      final difference = dateTime.difference(now);
+      final hours = difference.inHours;
+      final minutes = difference.inMinutes % 60;
+
+      String durationMsg = "";
+      if (currentLang == 'tr') {
+        durationMsg = "Alarm $hours saat $minutes dakika sonra çalacak.";
+      } else {
+        durationMsg = "Alarm set for $hours hours and $minutes minutes from now.";
+      }
+      
+      if (mounted) {
+        // Eski basit mesaj yerine hesaplanmış süreyi gösteriyoruz
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              durationMsg, 
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
+            ),
+            duration: const Duration(seconds: 4), // Okuması için süreyi biraz uzattık
+            backgroundColor: Colors.green, // Başarı hissi için yeşil yaptık
+          )
+        );
+      }
     }
   }
 
