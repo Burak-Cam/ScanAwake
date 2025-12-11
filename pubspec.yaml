@@ -1,0 +1,33 @@
+name: no_snooze
+description: "Barcode Alarm App - No Snooze Allowed!"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.3 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # icons
+  cupertino_icons: ^1.0.8
+
+  # added packages:
+  mobile_scanner: ^5.2.3
+  alarm: ^5.1.5
+  shared_preferences: ^2.3.2
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+
+  # alarm sound asset
+  assets:
+    - assets/alarm.mp3
