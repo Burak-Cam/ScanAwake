@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-// device_info_plus İPORTU KALDIRILDI
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,6 +64,10 @@ class _HomeScreenState extends State<HomeScreen> {
   TimeOfDay selectedTime = TimeOfDay.now();
   bool isAlarmActive = false;
   String currentLang = 'tr';
+  
+  // --- GAMIFICATION DEĞİŞKENLERİ ---
+  int streakCount = 0;
+  bool cheatDetected = false; 
 
   StreamSubscription? alarmSubscription;
 
@@ -75,7 +78,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkPermissions();
     _checkAlarmStatus();
     _startAlarmListener();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkBatteryOptimization());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkBatteryOptimization();
+      _checkCheatStatus(); // Hile kontrolü
+    });
   }
 
   @override
@@ -84,8 +90,51 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  // --- HİLE KONTROLÜ (SHERLOCK HOLMES) ---
+  Future<void> _checkCheatStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Eğer "is_ringing" true kalmışsa, kullanıcı alarm çalarken uygulamayı öldürmüştür.
+    bool wasRinging = prefs.getBool('is_ringing') ?? false;
+
+    if (wasRinging) {
+      // CEZA KESME VAKTİ
+      await prefs.setBool('is_ringing', false); // Bayrağı indir
+      await prefs.setInt('user_streak', 0); // SERİYİ SIFIRLA!
+      
+      setState(() {
+        streakCount = 0;
+        cheatDetected = true;
+      });
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.red[900],
+            title: const Text("🚨 HİLE TESPİT EDİLDİ! 🚨", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: Text(
+              AppStrings.get('cheat_msg', currentLang),
+              style: const TextStyle(color: Colors.white),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("ÖZÜR DİLERİM", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              )
+            ],
+          ),
+        );
+      }
+    }
+  }
+
   void _startAlarmListener() {
     alarmSubscription = Alarm.ringStream.stream.listen((alarmSettings) async {
+      // ALARM ÇALMAYA BAŞLADI: TUZAĞI KUR (Flag = True)
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_ringing', true);
+
       setState(() => isAlarmActive = false);
 
       if (savedBarcodes.isNotEmpty) {
@@ -102,6 +151,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (result == 'RESTART') {
           _handleRestartSequence();
+        } else if (result == 'SUCCESS') {
+           // Başarılı dönüş, streak güncellenmiş olmalı
+           _loadPreferences(); // Ekrandaki streak'i güncelle
         }
       }
     });
@@ -170,6 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       savedBarcodes = prefs.getStringList('target_barcodes') ?? [];
       currentLang = prefs.getString('app_lang') ?? 'tr';
+      streakCount = prefs.getInt('user_streak') ?? 0; // Streak yükle
     });
   }
 
@@ -273,37 +326,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _handleAlarmButton() async {
     if (isAlarmActive) {
-      // Alarmı İptal Etme Kısmı
       await Alarm.stop(42);
+      
+      // ALARM İPTAL EDİLDİĞİNDE TUZAĞI KALDIR
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_ringing', false);
+
       setState(() {
         isAlarmActive = false;
-        selectedTime = TimeOfDay.now(); 
+        selectedTime = TimeOfDay.now();
       });
-      if (mounted) _showSnack(AppStrings.get('alarm_cancelled', currentLang));
+      if(mounted) _showSnack(AppStrings.get('alarm_cancelled', currentLang));
     } else {
-      // Alarm Kurma Kısmı
       if (savedBarcodes.isEmpty) {
         _showSnack(AppStrings.get('add_item_first', currentLang));
         HapticFeedback.heavyImpact();
         return;
       }
-
       final now = DateTime.now();
       DateTime dateTime = DateTime(now.year, now.month, now.day, selectedTime.hour, selectedTime.minute);
-      
-      // Eğer seçilen saat şu andan önceyse (mesela saat 14:00 iken 08:00 seçildiyse), yarına kur.
-      if (dateTime.isBefore(now)) {
-        dateTime = dateTime.add(const Duration(days: 1));
-      }
+      if (dateTime.isBefore(now)) dateTime = dateTime.add(const Duration(days: 1));
 
       await scheduleAlarmFn(dateTime, false, true, currentLang);
       setState(() => isAlarmActive = true);
 
-      // --- YENİ EKLENEN KISIM: KALAN SÜRE HESAPLAMA ---
       final difference = dateTime.difference(now);
       final hours = difference.inHours;
       final minutes = difference.inMinutes % 60;
-
       String durationMsg = "";
       if (currentLang == 'tr') {
         durationMsg = "Alarm $hours saat $minutes dakika sonra çalacak.";
@@ -312,15 +361,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       
       if (mounted) {
-        // Eski basit mesaj yerine hesaplanmış süreyi gösteriyoruz
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              durationMsg, 
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
-            ),
-            duration: const Duration(seconds: 4), // Okuması için süreyi biraz uzattık
-            backgroundColor: Colors.green, // Başarı hissi için yeşil yaptık
+            content: Text(durationMsg, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.green,
           )
         );
       }
@@ -343,10 +388,21 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Text(currentLang.toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         actions: [
-          TextButton.icon(
-            onPressed: _testAlarm,
-            icon: const Icon(Icons.bolt, color: Colors.yellow),
-            label: const Text("TEST", style: TextStyle(color: Colors.yellow)),
+          Container(
+            margin: const EdgeInsets.only(right: 15),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.grey[900],
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: streakCount > 0 ? Colors.orange : Colors.grey)
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.local_fire_department, color: Colors.orange, size: 20),
+                const SizedBox(width: 5),
+                Text("$streakCount", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ],
+            ),
           )
         ],
       ),
@@ -370,6 +426,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
+          ),
+          
+          TextButton.icon(
+            onPressed: _testAlarm,
+            icon: const Icon(Icons.bolt, color: Colors.yellow),
+            label: const Text("TEST", style: TextStyle(color: Colors.yellow)),
           ),
 
           Container(
@@ -430,7 +492,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// --- RING SCREEN (TEMİZ: DEVICE INFO YOK, SARI KUTU YOK) ---
 class RingScreen extends StatefulWidget {
   final List<String> targetBarcodes;
   final bool startWithoutVibration;
@@ -448,11 +509,8 @@ class _RingScreenState extends State<RingScreen> {
   bool isCameraReady = false;
   late String randomFact;
 
-  // Acil Durum Butonu için Timer
   bool _showEmergencyButton = false;
   Timer? _emergencyTimer;
-
-  // XIAOMI FONKSİYONU SİLİNDİ
 
   @override
   void initState() {
@@ -460,7 +518,6 @@ class _RingScreenState extends State<RingScreen> {
     isVibrationStopped = widget.startWithoutVibration;
     randomFact = AppStrings.getRandomFact(widget.language);
 
-    // 60 saniye sonra acil butonu göster
     _emergencyTimer = Timer(const Duration(seconds: 60), () {
       if (mounted) {
         setState(() => _showEmergencyButton = true);
@@ -497,8 +554,10 @@ class _RingScreenState extends State<RingScreen> {
     Navigator.pop(context, 'RESTART');
   }
 
-  // ACİL DURUM KAPATMA
-  void _handleEmergencyStop() {
+  void _handleEmergencyStop() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_ringing', false); // Bayrağı indir, hile sayılmasın
+
     setState(() => isLocked = true);
     Alarm.stop(42);
     HapticFeedback.lightImpact();
@@ -508,29 +567,44 @@ class _RingScreenState extends State<RingScreen> {
     );
   }
 
-  // --- ZOMBİ ALARM KORUMASI ---
   bool isLocked = false;
   Future<void> _onScanSuccess() async {
     if (isLocked) return;
     setState(() => isLocked = true);
 
+    // 1. Alarmı Durdur
     await Alarm.stop(42);
     HapticFeedback.heavyImpact();
+
+    // 2. Hile Bayrağını İndir
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_ringing', false);
+
+    // 3. STREAK HESAPLAMA
+    String today = DateTime.now().toString().split(' ')[0];
+    String? lastScan = prefs.getString('last_scan_date');
+    int currentStreak = prefs.getInt('user_streak') ?? 0;
+
+    if (lastScan != today) {
+        currentStreak++;
+        await prefs.setInt('user_streak', currentStreak);
+        await prefs.setString('last_scan_date', today);
+    }
 
     if(mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("${AppStrings.get('morning_msg', widget.language)} \n\n${randomFact}"),
+          content: Text("TEBRİKLER! 🔥 $currentStreak. GÜN!\n\n${AppStrings.get('morning_msg', widget.language)} \n${randomFact}"),
           duration: const Duration(seconds: 8),
+          backgroundColor: Colors.green,
         ),
       );
     }
 
-    // 2 saniye bekle
     await Future.delayed(const Duration(seconds: 2));
 
     if(mounted) {
-      Navigator.pop(context);
+      Navigator.pop(context, 'SUCCESS');
     }
   }
 
@@ -574,7 +648,6 @@ class _RingScreenState extends State<RingScreen> {
                 ),
               ),
 
-            // ORTA YAZI
             Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -618,7 +691,6 @@ class _RingScreenState extends State<RingScreen> {
                 ),
               ),
 
-            // --- ACİL DURUM BUTONU ---
             if (_showEmergencyButton)
               Positioned(
                 top: 50, left: 20,
@@ -644,7 +716,6 @@ class _RingScreenState extends State<RingScreen> {
                   ),
                 ),
               ),
-            // KİLİT UYARISI BURADAN SİLİNDİ
           ],
         ),
       ),
@@ -652,6 +723,7 @@ class _RingScreenState extends State<RingScreen> {
   }
 }
 
+// --- EKSİK OLAN KISIM EKLENDİ ---
 class ScannerScreen extends StatefulWidget {
   final String language;
   const ScannerScreen({super.key, required this.language});
@@ -742,7 +814,12 @@ class AppStrings {
     },
     'btn_close': {'tr': 'Kapat', 'en': 'Close'},
     'emergency_btn': {'tr': 'ACİL DURUM KAPAT', 'en': 'EMERGENCY STOP'},
-    // lock_hint SİLİNDİ
+    
+    // --- HİLE MESAJI ---
+    'cheat_msg': {
+      'tr': 'Dün alarm çalarken uygulamayı zorla kapatıp kaçtığını tespit ettik.\n\nBu davranış "NoSnooze" ruhuna aykırı!\n\nCEZA: Seri (Streak) sıfırlandı.',
+      'en': 'We detected that you forced closed the app while the alarm was ringing.\n\nThis is against the "NoSnooze" spirit!\n\nPENALTY: Streak reset.'
+    }
   };
   
   static const Map<String, List<String>> _sleepFacts = {
