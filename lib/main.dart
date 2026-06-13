@@ -32,8 +32,12 @@ class NoSnoozeApp extends StatefulWidget {
 }
 
 class _NoSnoozeAppState extends State<NoSnoozeApp> {
-  Locale _locale = const Locale('en'); 
-  ThemeMode _themeMode = ThemeMode.dark; 
+  // UX-02 / D-09: device-aware default (EN device => en, otherwise => tr),
+  // resolved at construction and overridden by a saved app_lang in
+  // _loadPreferences. No longer a hard English default.
+  Locale _locale = Locale(defaultLocaleLang(
+      PlatformDispatcher.instance.locale.languageCode));
+  ThemeMode _themeMode = ThemeMode.dark;
   String _currentRingtone = 'assets/sounds/alarm1.mp3'; 
 
   @override
@@ -46,7 +50,10 @@ class _NoSnoozeAppState extends State<NoSnoozeApp> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       String? savedLang = prefs.getString('app_lang');
-      if (savedLang != null) _locale = Locale(savedLang);
+      // UX-02 / D-09: saved preference wins; otherwise fall back to the
+      // device-aware default instead of a hard English default.
+      _locale = Locale(savedLang ??
+          defaultLocaleLang(PlatformDispatcher.instance.locale.languageCode));
       
       bool isDark = prefs.getBool('is_dark_mode') ?? true;
       _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
@@ -185,6 +192,16 @@ bool streakEligible(AlarmKind kind, String? lastScanDate, String today) =>
 /// FIX-05: monotonic id step. Pure helper backing the SharedPreferences
 /// `alarm_id_counter` so unit tests can assert it never collides.
 int incrementId(int prior) => prior + 1;
+
+/// FIX-05 (RESEARCH Q1): mint the next unique alarm id from the persisted
+/// monotonic counter `alarm_id_counter`. Used for ALL ids — entity, snooze and
+/// test alarms — so two alarms minted in the same millisecond never collide
+/// (the old `% N` of millisecondsSinceEpoch could). Persists before returning.
+Future<int> nextAlarmId(SharedPreferences prefs) async {
+  final next = incrementId(prefs.getInt('alarm_id_counter') ?? 0);
+  await prefs.setInt('alarm_id_counter', next);
+  return next;
+}
 
 /// UX-02 / D-09: default UI language when no `app_lang` is saved. English
 /// device locale => 'en'; every other locale (incl. TR and other languages)
@@ -399,10 +416,10 @@ class _HomeScreenState extends State<HomeScreen> {
            await prefs.setInt('snooze_tokens', newTokens);
            
            await scheduleAlarmFn(
-             DateTime.now().millisecondsSinceEpoch % 100000, 
-             DateTime.now().add(const Duration(minutes: 5)), 
-             true, 
-             currentLang, 
+             await nextAlarmId(prefs),
+             DateTime.now().add(const Duration(minutes: 5)),
+             true,
+             currentLang,
              widget.currentRingtone,
              "Snoozed"
            );
@@ -508,21 +525,25 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
+    // FIX-03 / D-05: per-entry resilient parse — a single corrupt record skips
+    // only itself instead of wiping the whole list (no app crash on load).
+    final String? alarmsJson = prefs.getString('alarms_data');
+    final (parsedAlarms, skipped) = parseAlarmsResilient(alarmsJson);
     setState(() {
       savedBarcodes = prefs.getStringList('target_barcodes') ?? [];
       streakCount = prefs.getInt('user_streak') ?? 0;
       snoozeTokens = prefs.getInt('snooze_tokens') ?? 0;
-      
-      final String? alarmsJson = prefs.getString('alarms_data');
-      if (alarmsJson != null) {
-        List<dynamic> decoded = jsonDecode(alarmsJson);
-        try {
-           alarms = decoded.map((e) => AlarmEntity.fromJson(e)).toList();
-        } catch (_) {
-           alarms = []; 
-        }
-      }
+      alarms = parsedAlarms;
     });
+
+    // D-06: if any record was dropped, tell the user with a light snackbar
+    // (NOT a full-screen dialog) after the first frame.
+    if (skipped > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showSnack(AppStrings.get('alarms_not_restored', currentLang).replaceAll('{n}', '$skipped'));
+      });
+    }
   }
 
   Future<void> _saveAlarms() async {
@@ -541,14 +562,16 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     final now = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
     await scheduleAlarmFn(
-      now.millisecondsSinceEpoch % 10000, 
-      now.add(const Duration(seconds: 5)), 
-      true, 
+      await nextAlarmId(prefs),
+      now.add(const Duration(seconds: 5)),
+      true,
       currentLang,
       widget.currentRingtone,
       "Test"
     );
+    if (!mounted) return;
     _showSnack(AppStrings.get('test_start', currentLang));
   }
 
@@ -874,9 +897,10 @@ class _HomeScreenState extends State<HomeScreen> {
     ).then((value) async {
        if (value == 'SAVE') {
           final dateTime = _calculateAlarmDateTime(tempTime, tempDays);
-          
+          final prefs = await SharedPreferences.getInstance();
+
           final newAlarm = AlarmEntity(
-            id: DateTime.now().millisecondsSinceEpoch % 100000, 
+            id: await nextAlarmId(prefs),
             time: tempTime,
             repeatDays: tempDays, 
             label: tempLabel,
@@ -1710,6 +1734,7 @@ class AppStrings {
     'weekly_msg': {'tr': 'TEBRİKLER! BİR HAFTAYI DEVİRDİN! 🏆', 'en': 'CONGRATS! YOU CRUSHED A WEEK! 🏆'},
     'snooze_btn': {'tr': 'Zzz Ertele', 'en': 'Zzz Snooze'},
     'snooze_used': {'tr': 'Alarm 5dk ertelendi. Jeton kullanıldı.', 'en': 'Alarm snoozed for 5m. Token used.'},
+    'alarms_not_restored': {'tr': '{n} alarm geri yüklenemedi', 'en': '{n} alarm(s) could not be restored'},
     'developer_mode': {'tr': '🛠️ Geliştirici Modu', 'en': '🛠️ Developer Mode'},
     'no_alarms_set': {'tr': 'Henüz Alarm Kurulmadı', 'en': 'No Alarms Set'},
     'select_days': {'tr': 'Tekrarlanacak Günleri Seç', 'en': 'Select Repeat Days'},
