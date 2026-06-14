@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'constants/app_constants.dart';
 import 'l10n/app_strings.dart';
 import 'models/alarm_entity.dart';
+import 'models/enums.dart';
 import 'services/alarm_service.dart';
 import 'services/prefs_service.dart';
 import 'services/streak_service.dart';
@@ -27,6 +28,7 @@ import 'services/streak_service.dart';
 export 'constants/app_constants.dart';
 export 'l10n/app_strings.dart';
 export 'models/alarm_entity.dart';
+export 'models/enums.dart';
 export 'services/alarm_service.dart';
 export 'services/streak_service.dart';
 
@@ -320,7 +322,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (!mounted) return;
 
-        if (result == 'RESTART') {
+        // ARC-03 / D-03: branch on the typed RingResult contract (was the
+        // stringly-typed 'RESTART'/'SNOOZE'/'SUCCESS'/'EMERGENCY' sentinels).
+        // Navigator results are dynamic, so a non-RingResult value falls
+        // through to no dismiss-path action (every real dismiss returns one of
+        // the four variants from RingScreen). Re-arm (FIX-01) stays on every path.
+        switch (result) {
+          case RingResult.restart:
            await Alarm.stop(alarmSettings.id);
            // RLS-05 / D-07: safe-side 2.5s cooldown before re-firing so the
            // camera/vibration stack settles (avoids camera-busy on restart).
@@ -329,8 +337,8 @@ class _HomeScreenState extends State<HomeScreen> {
            // FIX-01: the transient restart fire above is a one-off; a REPEATING
            // alarm must still keep its next scheduled occurrence (stable id).
            await _rearmIfRepeating(index);
-        }
-        else if (result == 'SNOOZE') {
+            break;
+          case RingResult.snooze:
            await prefs.setRinging(false);
            await Alarm.stop(alarmSettings.id);
 
@@ -354,20 +362,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
            setState(() => snoozeTokens = newTokens);
            _showSnack(AppStrings.get('snooze_used', currentLang));
-        }
-        else if (result == 'SUCCESS') {
+            break;
+          case RingResult.success:
            await prefs.setRinging(false);
 
            // FIX-01: re-arm the repeating alarm to its next occurrence.
            await _rearmIfRepeating(index);
 
            _loadPreferences();
-        }
-        else if (result == 'EMERGENCY') {
+            break;
+          case RingResult.emergency:
            // FIX-01: emergency stop halts the current fire, but a REPEATING
            // alarm must still keep its next occurrence (no silent loss).
            await prefs.setRinging(false);
            await _rearmIfRepeating(index);
+            break;
+          default:
+            // Non-RingResult / null pop (no dismiss action). Re-arm paths above
+            // already cover every real dismiss; nothing to do here.
+            break;
         }
 
         // Ring window is over (any dismiss path): stop watching for escapes and
@@ -1262,12 +1275,12 @@ class _RingScreenState extends State<RingScreen> {
   }
 
   void _requestRestart() {
-    Navigator.pop(context, 'RESTART');
+    Navigator.pop(context, RingResult.restart);
   }
 
   void _useSnoozeToken() {
     if (widget.availableTokens > 0) {
-      Navigator.pop(context, 'SNOOZE');
+      Navigator.pop(context, RingResult.snooze);
     }
   }
 
@@ -1279,10 +1292,10 @@ class _RingScreenState extends State<RingScreen> {
     await Alarm.stop(widget.alarmId);
     HapticFeedback.lightImpact();
     if (!mounted) return;
-    // FIX-01: return the 'EMERGENCY' sentinel (was an arg-less pop) so the
-    // dismiss chain in _startAlarmListener can re-arm a repeating alarm to its
-    // next occurrence. The user-facing cancelled-snackbar is shown there/here.
-    Navigator.pop(context, 'EMERGENCY');
+    // FIX-01: return RingResult.emergency (was an arg-less pop) so the dismiss
+    // chain in _startAlarmListener can re-arm a repeating alarm to its next
+    // occurrence. The user-facing cancelled-snackbar is shown there/here.
+    Navigator.pop(context, RingResult.emergency);
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1359,7 +1372,7 @@ class _RingScreenState extends State<RingScreen> {
     await Future.delayed(const Duration(seconds: 2));
 
     if(mounted) {
-      Navigator.pop(context, 'SUCCESS');
+      Navigator.pop(context, RingResult.success);
     }
   }
 
