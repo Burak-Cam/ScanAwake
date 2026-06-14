@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:no_snooze/main.dart';
+import 'package:no_snooze/constants/app_constants.dart';
 
 // RLS-05 / D-07 (code half): the camera/vibration restart cooldown must be the
 // "safe side" 2.5s value, not the old 500ms. The device-reliability half of

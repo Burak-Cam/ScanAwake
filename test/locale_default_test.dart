@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:no_snooze/main.dart';
+import 'package:no_snooze/l10n/app_strings.dart';
 
 // UX-02 / D-09 characterization: English device => en; everything else => tr.
 void main() {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:no_snooze/main.dart';
+import 'package:no_snooze/services/streak_service.dart';
 
 // FIX-02 / D-01 characterization: anti-cheat verdict.
 // escape => reset, no-escape => preserve (assume OEM-kill), not-ringing => none.

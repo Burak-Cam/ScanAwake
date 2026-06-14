@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:no_snooze/main.dart';
+import 'package:no_snooze/models/alarm_entity.dart';
+import 'package:no_snooze/services/streak_service.dart';
 
 // FIX-04 / D-02,D-03,D-04 characterization: what counts toward the streak.
 // Only a REAL alarm on a not-yet-counted day is eligible.

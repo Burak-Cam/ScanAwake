@@ -9,20 +9,6 @@ import 'l10n/app_strings.dart';
 import 'services/prefs_service.dart';
 import 'screens/home_screen.dart';
 
-// Re-export shim (RESEARCH Pattern 1): the characterization tests still import
-// `package:no_snooze/main.dart`, so the symbols extracted into the modules
-// below stay reachable from this file. Task 2 of 02-04 rewrites the test
-// imports to the real module paths and drops ALL of these exports.
-export 'constants/app_constants.dart';
-export 'l10n/app_strings.dart';
-export 'models/alarm_entity.dart';
-export 'models/enums.dart';
-export 'services/alarm_service.dart';
-export 'services/streak_service.dart';
-export 'screens/home_screen.dart';
-export 'screens/ring_screen.dart';
-export 'screens/scanner_screen.dart';
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Alarm.init();

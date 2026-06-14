@@ -125,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _startAlarmListener() {
-    // RLS-06 / D-05: migrated from the deprecated `Alarm.ringStream` (a
+    // RLS-06 / D-05: migrated from the deprecated ring-stream API (a
     // StreamController<AlarmSettings>) to `Alarm.ringing`, a
     // ValueStream<AlarmSet> whose `.alarms` is a Set<AlarmSettings>. We iterate
     // the set (Pitfall 2 — handle every ringing alarm, not just the first) and

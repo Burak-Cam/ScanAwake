@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:no_snooze/main.dart';
+import 'package:no_snooze/services/alarm_service.dart';
 
 // FIX-01 CHARACTERIZATION: pins the CURRENT behavior of calculateAlarmDateTime
 // (next-occurrence math). It does NOT assert "correct" behavior — Plan 03's

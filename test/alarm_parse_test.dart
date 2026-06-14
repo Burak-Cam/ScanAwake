@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:no_snooze/main.dart';
+import 'package:no_snooze/models/alarm_entity.dart';
 
 // FIX-03 / D-05 characterization: per-entry resilient parse.
 // A corrupt record skips only itself; valid records are preserved; malformed
