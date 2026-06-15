@@ -68,6 +68,8 @@ class AppStrings {
     'label_title': {'tr': 'Etiket', 'en': 'Label'},
     'label_hint': {'tr': 'Alarm', 'en': 'Alarm'},
     'add_alarm_title': {'tr': 'Alarm Ekle', 'en': 'Add Alarm'},
+    // UX-01: in-place edit modal title (reuses the add modal; TR/EN parity).
+    'edit_alarm_title': {'tr': 'Alarmı Düzenle', 'en': 'Edit Alarm'},
     'btn_cancel': {'tr': 'İptal', 'en': 'Cancel'},
     'btn_save': {'tr': 'Kaydet', 'en': 'Save'},
     'inactive': {'tr': 'Pasif', 'en': 'Inactive'},

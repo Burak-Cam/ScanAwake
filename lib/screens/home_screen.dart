@@ -590,16 +590,32 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime _calculateAlarmDateTime(TimeOfDay time, List<int> repeatDays) =>
       calculateAlarmDateTime(time, repeatDays);
 
-  Future<void> _addAlarm() async {
+  // UX-01: single source of truth for deriving the repeat-mode label from a
+  // list of repeat days. MUST stay byte-consistent with the list-render
+  // derivation (see build()'s ListView.builder daysText) so the modal pre-fill
+  // and the list row never diverge. 'once' (empty) / 'daily' (all 7) /
+  // 'weekdays' (Mon-Fri, no Sat/Sun) / 'custom' (anything else).
+  String _deriveRepeatMode(List<int> days) {
+    if (days.isEmpty) return 'once';
+    if (days.length == 7) return 'daily';
+    if (days.length == 5 && !days.contains(6) && !days.contains(7)) return 'weekdays';
+    return 'custom';
+  }
+
+  // UX-01 / D-01: shared add/edit modal. `editing == null` => add a new alarm
+  // (existing flow, new monotonic id). `editing != null` => in-place edit: the
+  // fields are pre-filled and the SAME editing.id is preserved on save (Task 2).
+  Future<void> _addAlarm({AlarmEntity? editing}) async {
     if (savedBarcodes.isEmpty) {
       _showSnack(AppStrings.get('add_item_first', currentLang));
       return;
     }
 
-    TimeOfDay tempTime = TimeOfDay.now();
-    List<int> tempDays = [];
-    String tempLabel = "";
-    String repeatMode = 'once'; 
+    // UX-01 / D-01: pre-fill from `editing` when editing, else add-mode defaults.
+    TimeOfDay tempTime = editing?.time ?? TimeOfDay.now();
+    List<int> tempDays = editing != null ? List<int>.from(editing.repeatDays) : [];
+    String tempLabel = editing?.label ?? "";
+    String repeatMode = _deriveRepeatMode(tempDays);
 
     await showModalBottomSheet(
       context: context,
@@ -618,7 +634,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.get('btn_cancel', currentLang), style: const TextStyle(color: Colors.grey))),
-                      Text(AppStrings.get('add_alarm_title', currentLang), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                      Text(AppStrings.get(editing == null ? 'add_alarm_title' : 'edit_alarm_title', currentLang), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                       TextButton(
                         onPressed: () => Navigator.pop(context, 'SAVE'),
                         child: Text(AppStrings.get('btn_save', currentLang), style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
@@ -639,7 +655,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: CupertinoDatePicker(
                         mode: CupertinoDatePickerMode.time,
                         use24hFormat: true,
-                        initialDateTime: DateTime.now(),
+                        // Pitfall 3: a TimeOfDay cannot be passed directly; when
+                        // editing, build a DateTime on today's date carrying the
+                        // alarm's hour/minute so the picker shows the real time
+                        // (not 00:00). Add-mode keeps DateTime.now().
+                        initialDateTime: editing != null
+                            ? () {
+                                final now = DateTime.now();
+                                return DateTime(now.year, now.month, now.day, tempTime.hour, tempTime.minute);
+                              }()
+                            : DateTime.now(),
                         onDateTimeChanged: (DateTime newDateTime) {
                            tempTime = TimeOfDay.fromDateTime(newDateTime);
                         },
@@ -1069,15 +1094,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     final alarm = alarms[index];
                     
                     // LIST VIEW: TIME + LABEL + DAYS
-                    String daysText;
-                    if (alarm.repeatDays.isEmpty) {
-                      daysText = AppStrings.get('repeat_once', currentLang);
-                    } else if (alarm.repeatDays.length == 7) {
-                      daysText = AppStrings.get('daily_repeat', currentLang);
-                    } else if (alarm.repeatDays.length == 5 && !alarm.repeatDays.contains(6) && !alarm.repeatDays.contains(7)) {
-                       daysText = AppStrings.get('weekdays_repeat', currentLang);
-                    } else {
-                       daysText = alarm.repeatDays.map((d) => AppStrings.getDayShortName(d, currentLang)).join(', ');
+                    // UX-01: derive the repeat label through the SAME helper the
+                    // edit modal uses (_deriveRepeatMode) so the list row and the
+                    // pre-filled modal never diverge (single source of truth).
+                    final String daysText;
+                    switch (_deriveRepeatMode(alarm.repeatDays)) {
+                      case 'once':
+                        daysText = AppStrings.get('repeat_once', currentLang);
+                      case 'daily':
+                        daysText = AppStrings.get('daily_repeat', currentLang);
+                      case 'weekdays':
+                        daysText = AppStrings.get('weekdays_repeat', currentLang);
+                      default:
+                        daysText = alarm.repeatDays.map((d) => AppStrings.getDayShortName(d, currentLang)).join(', ');
                     }
 
                     return Dismissible(
