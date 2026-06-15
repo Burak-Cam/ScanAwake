@@ -354,6 +354,43 @@ class _HomeScreenState extends State<HomeScreen> {
     await Permission.scheduleExactAlarm.request();
   }
 
+  // RLS-04 / D-03: redirect dialog shown when the funnel reports the exact-alarm
+  // permission is missing. Mirrors the _checkBatteryOptimization dialog: a
+  // "close" action and an "Open Settings" action that deep-links to the system
+  // permission page via openAppSettings(). barrierDismissible:false so the user
+  // makes an explicit choice. context.mounted guard preserves async-safety.
+  Future<void> _showExactAlarmDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.get('exact_alarm_title', currentLang)),
+        content: Text(AppStrings.get('exact_alarm_desc', currentLang)),
+        actions: [
+          TextButton(
+            onPressed: () { if (context.mounted) Navigator.pop(context); },
+            child: Text(AppStrings.get('btn_close', currentLang), style: const TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async { if (context.mounted) Navigator.pop(context); await openAppSettings(); },
+            child: Text(AppStrings.get('btn_open_settings', currentLang), style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // RLS-04 / D-03: catch the funnel signal. Runs the schedule thunk; if it
+  // returns false (exact-alarm permission missing => no Alarm.set happened) and
+  // we still have a UI context, show the redirect dialog. Returns the same bool
+  // so callers can roll back their optimistic state on failure. Signature is
+  // BYTE-IDENTICAL to Plan 03 Task 2 (Wave 2 signature compatibility).
+  Future<bool> _ensureExactAlarmOrPrompt(Future<bool> Function() scheduleCall) async {
+    final ok = await scheduleCall();
+    if (!ok && mounted) await _showExactAlarmDialog();
+    return ok;
+  }
+
   Future<void> _loadPreferences() async {
     final prefs = PrefsService(await SharedPreferences.getInstance());
     if (!mounted) return;
@@ -395,16 +432,19 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final now = DateTime.now();
     final prefs = PrefsService(await SharedPreferences.getInstance());
-    await scheduleAlarmFn(
-      await nextAlarmId(prefs),
+    final testId = await nextAlarmId(prefs);
+    // RLS-04 / D-03: route through the funnel-signal helper; if exact-alarm
+    // permission is missing the dialog is shown and we return silently.
+    final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(
+      testId,
       now.add(const Duration(seconds: 5)),
       true,
       currentLang,
       widget.currentRingtone,
       "Test",
       AlarmKind.test, // FIX-04 / D-03: a test alarm never earns streak.
-    );
-    if (!mounted) return;
+    ));
+    if (!mounted || !ok) return;
     _showSnack(AppStrings.get('test_start', currentLang));
   }
 
@@ -740,7 +780,10 @@ class _HomeScreenState extends State<HomeScreen> {
             isActive: true, 
           );
 
-          await scheduleAlarmFn(newAlarm.id, dateTime, true, currentLang, widget.currentRingtone, tempLabel, AlarmKind.real);
+          // RLS-04 / D-03: if exact-alarm permission is missing the funnel does
+          // NOT set the alarm and the dialog is shown — do not add/persist it.
+          final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(newAlarm.id, dateTime, true, currentLang, widget.currentRingtone, tempLabel, AlarmKind.real));
+          if (!ok) return;
 
           setState(() {
             alarms.add(newAlarm);
@@ -765,8 +808,15 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       
       final nextTime = _calculateAlarmDateTime(alarms[index].time, alarms[index].repeatDays);
-      
-      await scheduleAlarmFn(alarms[index].id, nextTime, true, currentLang, widget.currentRingtone, alarms[index].label, AlarmKind.real);
+
+      // RLS-04 / D-03: catch the funnel signal. If exact-alarm permission is
+      // missing, the dialog is shown and the Switch is rolled back to off.
+      final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(alarms[index].id, nextTime, true, currentLang, widget.currentRingtone, alarms[index].label, AlarmKind.real));
+      if (!ok) {
+        if (mounted) setState(() => alarms[index].isActive = false);
+        _saveAlarms();
+        return;
+      }
 
       if (mounted) _showRemainingTime(nextTime);
     } else {
