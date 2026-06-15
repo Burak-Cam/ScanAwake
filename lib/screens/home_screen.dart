@@ -793,16 +793,20 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     ).then((value) async {
-       if (value == 'SAVE') {
-          final dateTime = _calculateAlarmDateTime(tempTime, tempDays);
+       if (value != 'SAVE') return;
+
+       final dateTime = _calculateAlarmDateTime(tempTime, tempDays);
+
+       if (editing == null) {
+          // --- ADD path (unchanged): new monotonic id ---
           final prefs = PrefsService(await SharedPreferences.getInstance());
 
           final newAlarm = AlarmEntity(
             id: await nextAlarmId(prefs),
             time: tempTime,
-            repeatDays: tempDays, 
+            repeatDays: tempDays,
             label: tempLabel,
-            isActive: true, 
+            isActive: true,
           );
 
           // RLS-04 / D-03: if exact-alarm permission is missing the funnel does
@@ -816,7 +820,39 @@ class _HomeScreenState extends State<HomeScreen> {
           });
           _saveAlarms();
           if (mounted) _showRemainingTime(dateTime);
+          return;
        }
+
+       // --- EDIT path (UX-01 / D-01, D-02): preserve the SAME editing.id ---
+       // T-03-08 mitigation: nextAlarmId() is NEVER called here, so re-arming
+       // replaces the same occurrence instead of orphaning a stale schedule.
+       final idx = alarms.indexWhere((a) => a.id == editing.id);
+       if (idx == -1) return; // alarm vanished (e.g. deleted) — nothing to edit.
+
+       setState(() {
+         alarms[idx].time = tempTime;
+         alarms[idx].repeatDays = tempDays;
+         alarms[idx].label = tempLabel;
+         // Same time-of-day ordering the add path uses.
+         alarms.sort((a, b) => (a.time.hour * 60 + a.time.minute).compareTo(b.time.hour * 60 + b.time.minute));
+       });
+       _saveAlarms();
+
+       // D-02: only re-arm an ACTIVE alarm. A passive (Switch off) alarm just
+       // updates its entity — scheduling is left to _toggleAlarm so we never
+       // silently arm a disabled alarm (T-03-09 mitigation).
+       if (!editing.isActive) return;
+
+       // Cancel the old schedule, then re-arm at the new time with the SAME id.
+       // The re-arm goes through Plan 02's funnel-signal helper (same signature,
+       // not redefined) so the edit save passes the in-funnel exact-alarm gate
+       // (T-03-10 — no leaked Alarm.set; single funnel / D-03).
+       await Alarm.stop(editing.id);
+       final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(editing.id, dateTime, true, currentLang, widget.currentRingtone, tempLabel, AlarmKind.real));
+       // If permission was missing (ok == false) the dialog was already shown by
+       // the helper; the entity edit is intentionally NOT rolled back (the user
+       // changed the time) — toggling the alarm again will re-attempt the arm.
+       if (ok && mounted) _showRemainingTime(dateTime);
     });
   }
 
@@ -1129,6 +1165,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          // UX-01 / D-01: tap the row to open the pre-filled edit
+                          // modal. Distinct from the Dismissible swipe (delete)
+                          // and the trailing Switch (toggle) — gestures don't clash.
+                          onTap: () => _addAlarm(editing: alarm),
                           title: Row(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
