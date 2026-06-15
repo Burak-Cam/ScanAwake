@@ -4,9 +4,6 @@
 
 NoSnooze is an aggressive alarm application developed for people who have difficulty waking up. It **will not stop ringing until the user scans a pre-defined barcode**. Unlike standard alarms, NoSnooze forces you to get out of bed and perform a physical action.
 
-![App Screenshot](assets/screenshot_placeholder.png) 
-*(You can add screenshots of the app's home screen and scanning screen here)*
-
 ## 🚀 Key Features
 
 * **Barcode Dismissal:** The ONLY way to stop the alarm is by scanning a saved barcode of an item (toothpaste, book, or shampoo) with the camera.
