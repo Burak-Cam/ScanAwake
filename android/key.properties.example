@@ -1,0 +1,15 @@
+# Release signing configuration template for NoSnooze.
+#
+# Copy this file to `key.properties` (same directory: uyan/android/) and fill in
+# the values for YOUR release keystore. The real `key.properties` file, along with
+# any *.jks / *.keystore files, is gitignored and MUST NEVER be committed.
+#
+# When `key.properties` is absent, the release build falls back to the debug key,
+# so day-to-day `flutter run --release` keeps working without a real keystore.
+#
+# storeFile may be an absolute path or a path relative to uyan/android/.
+
+storePassword=<your-store-password>
+keyPassword=<your-key-password>
+keyAlias=<your-key-alias>
+storeFile=<path/to/your-release-key.jks>
