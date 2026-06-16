@@ -139,7 +139,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (index == -1) return true;
     if (alarms[index].repeatDays.isEmpty) return true;
     final nextTime = _calculateAlarmDateTime(alarms[index].time, alarms[index].repeatDays);
-    return scheduleAlarmFn(alarms[index].id, nextTime, true, currentLang, widget.currentRingtone, alarms[index].label, AlarmKind.real);
+    // ENG-03 / MIS-01: carry the alarm's persisted mission into the re-arm.
+    // scheduleAlarmFn's missionType defaults to none, so omitting it here would
+    // silently DOWNGRADE a repeating Lümen alarm to MissionType.none on every
+    // re-fire (losing its mission forever). A repeating Lümen alarm MUST re-arm
+    // AS Lümen — hence the explicit pass of alarms[index].missionType.
+    return scheduleAlarmFn(alarms[index].id, nextTime, true, currentLang, widget.currentRingtone, alarms[index].label, AlarmKind.real, missionType: alarms[index].missionType);
   }
 
   void _startAlarmListener() {
@@ -651,6 +656,9 @@ class _HomeScreenState extends State<HomeScreen> {
     TimeOfDay tempTime = editing?.time ?? TimeOfDay.now();
     List<int> tempDays = editing != null ? List<int>.from(editing.repeatDays) : [];
     String tempLabel = editing?.label ?? "";
+    // D-11 / UX-01: pre-fill the per-alarm mission. Legacy alarms (predating the
+    // field) read MissionType.none via the Plan-01 defensive fromJson.
+    MissionType tempMissionType = editing?.missionType ?? MissionType.none;
     String repeatMode = _deriveRepeatMode(tempDays);
 
     await showModalBottomSheet(
@@ -838,6 +846,55 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
+                  const Divider(),
+                  // MISSION MENU (D-09): verbatim mirror of the repeat-menu
+                  // ListTile + showModalBottomSheet pattern above.
+                  ListTile(
+                    leading: const Icon(Icons.flag),
+                    title: Text(AppStrings.get('mission_menu_title', currentLang)),
+                    subtitle: Text(
+                      tempMissionType == MissionType.lumen
+                          ? AppStrings.get('mission_lumen_name', currentLang)
+                          : AppStrings.get('mission_none', currentLang),
+                    ),
+                    onTap: () async {
+                      await showModalBottomSheet(
+                        context: context,
+                        builder: (BuildContext context) {
+                          // D-10: ONLY the two ready missions — no coming-soon /
+                          // disabled rows.
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  AppStrings.get('mission_select_title', currentLang),
+                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              ListTile(
+                                leading: const Icon(Icons.block),
+                                title: Text(AppStrings.get('mission_none', currentLang)),
+                                onTap: () {
+                                  setModalState(() => tempMissionType = MissionType.none);
+                                  Navigator.pop(context);
+                                },
+                              ),
+                              ListTile(
+                                leading: const Icon(Icons.wb_sunny),
+                                title: Text(AppStrings.get('mission_lumen_name', currentLang)),
+                                onTap: () {
+                                  setModalState(() => tempMissionType = MissionType.lumen);
+                                  Navigator.pop(context);
+                                },
+                              ),
+                            ],
+                          );
+                        }
+                      );
+                    },
+                  ),
                 ],
               ),
             );
@@ -859,11 +916,12 @@ class _HomeScreenState extends State<HomeScreen> {
             repeatDays: tempDays,
             label: tempLabel,
             isActive: true,
+            missionType: tempMissionType,
           );
 
           // RLS-04 / D-03: if exact-alarm permission is missing the funnel does
           // NOT set the alarm and the dialog is shown — do not add/persist it.
-          final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(newAlarm.id, dateTime, true, currentLang, widget.currentRingtone, tempLabel, AlarmKind.real));
+          final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(newAlarm.id, dateTime, true, currentLang, widget.currentRingtone, tempLabel, AlarmKind.real, missionType: tempMissionType));
           if (!ok) return;
 
           setState(() {
@@ -885,6 +943,9 @@ class _HomeScreenState extends State<HomeScreen> {
          alarms[idx].time = tempTime;
          alarms[idx].repeatDays = tempDays;
          alarms[idx].label = tempLabel;
+         // ENG-03 / MIS-01: persist the selected mission on the same entity (the
+         // editing.id stays stable — UX-01).
+         alarms[idx].missionType = tempMissionType;
          // UX-01 (deliberate D-02 reversal): editing a PASSIVE (Switch off) alarm
          // and tapping SAVE now auto-activates it. Idempotent for already-active
          // alarms (true → true). User confirmed this during device UAT.
@@ -906,7 +967,7 @@ class _HomeScreenState extends State<HomeScreen> {
        // not redefined) so the edit save passes the in-funnel exact-alarm gate
        // (T-03-10 — no leaked Alarm.set; single funnel / D-03).
        await Alarm.stop(editing.id);
-       final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(editing.id, dateTime, true, currentLang, widget.currentRingtone, tempLabel, AlarmKind.real));
+       final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(editing.id, dateTime, true, currentLang, widget.currentRingtone, tempLabel, AlarmKind.real, missionType: tempMissionType));
        if (!ok) {
          // CR-01: the old schedule was already stopped and the new one was NOT
          // set (exact-alarm permission missing — the helper already showed the
