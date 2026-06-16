@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/alarm_entity.dart';
+import '../models/enums.dart';
 import 'prefs_service.dart';
 
 /// TST-02 / RESEARCH A2: a thin injectable seam over the static `Alarm` API.
@@ -77,6 +78,7 @@ Future<bool> scheduleAlarmFn(
   String audioPath,
   String label,
   AlarmKind alarmType, {
+  MissionType missionType = MissionType.none,
   AlarmGateway gateway = defaultAlarmGateway,
 }) async {
   // RLS-04 / D-03: set-öncesi gate. Permission revoked => do NOT set, signal false.
@@ -87,7 +89,9 @@ Future<bool> scheduleAlarmFn(
     assetAudioPath: audioPath,
     loopAudio: true,
     vibrate: vibrate,
-    payload: jsonEncode({'kind': alarmType.name}),
+    // ENG-03 / MIS-01: mission rides the SAME payload map as kind, so the ring
+    // listener can pick the dismissal mission at fire time (D-11 default none).
+    payload: jsonEncode({'kind': alarmType.name, 'mission': missionType.name}),
     volumeSettings: VolumeSettings.fade(
       volume: 1.0,
       fadeDuration: const Duration(seconds: 3),

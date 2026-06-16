@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart' show TimeOfDay;
 
+import 'enums.dart';
+
 /// Type of alarm that fired. Carried via [AlarmSettings.payload] (D-03/FIX-04).
 /// Legacy alarms with no payload default to [AlarmKind.real] (Pitfall 2).
 enum AlarmKind { real, test, snooze }
@@ -43,12 +45,18 @@ class AlarmEntity {
   List<int> repeatDays;
   String label;
 
+  /// ENG-03 / MIS-01: the dismissal mission for this alarm. Defaults to
+  /// [MissionType.none] (legacy alarms predate the field — D-11). Persisted to
+  /// `alarms_data` and carried into [AlarmSettings.payload] by [scheduleAlarmFn].
+  MissionType missionType;
+
   AlarmEntity({
     required this.id,
     required this.time,
     this.isActive = true,
     this.repeatDays = const [],
     this.label = '',
+    this.missionType = MissionType.none,
   });
 
   Map<String, dynamic> toJson() => {
@@ -58,6 +66,7 @@ class AlarmEntity {
     'isActive': isActive,
     'repeatDays': repeatDays,
     'label': label,
+    'missionType': missionType.name,
   };
 
   factory AlarmEntity.fromJson(Map<String, dynamic> json) {
@@ -95,12 +104,22 @@ class AlarmEntity {
     final rawLabel = json['label'];
     final label = rawLabel == null ? '' : rawLabel.toString();
 
+    // D-11 / Pitfall 5: missing field OR unknown/future value => safe `none`,
+    // NEVER throw (dismiss must never crash). `asNameMap()[x] ?? none`, not
+    // `byName` (byName throws on unknown). An unknown missionType is NOT
+    // corruption — the record stays valid (parseAlarmsResilient keeps it).
+    final rawMission = json['missionType'];
+    final missionType = (rawMission is String)
+        ? (MissionType.values.asNameMap()[rawMission] ?? MissionType.none)
+        : MissionType.none;
+
     return AlarmEntity(
       id: id,
       time: TimeOfDay(hour: hour, minute: minute),
       isActive: isActive,
       repeatDays: repeatDays,
       label: label,
+      missionType: missionType,
     );
   }
 }
