@@ -869,15 +869,21 @@ class _HomeScreenState extends State<HomeScreen> {
          alarms[idx].time = tempTime;
          alarms[idx].repeatDays = tempDays;
          alarms[idx].label = tempLabel;
+         // UX-01 (deliberate D-02 reversal): editing a PASSIVE (Switch off) alarm
+         // and tapping SAVE now auto-activates it. Idempotent for already-active
+         // alarms (true → true). User confirmed this during device UAT.
+         alarms[idx].isActive = true;
          // Same time-of-day ordering the add path uses.
          alarms.sort((a, b) => (a.time.hour * 60 + a.time.minute).compareTo(b.time.hour * 60 + b.time.minute));
        });
        _saveAlarms();
 
-       // D-02: only re-arm an ACTIVE alarm. A passive (Switch off) alarm just
-       // updates its entity — scheduling is left to _toggleAlarm so we never
-       // silently arm a disabled alarm (T-03-09 mitigation).
-       if (!editing.isActive) return;
+       // UX-01: passive AND active alarms now go through the SAME scheduling
+       // funnel below. The previous D-02 early-return (passive alarm just
+       // updated its entity without scheduling) was deliberately removed —
+       // editing + SAVE always arms the alarm. The CR-01 ghost-alarm fallback
+       // still protects the passive→active path (exact-alarm permission denied
+       // flips isActive back to false + persists).
 
        // Cancel the old schedule, then re-arm at the new time with the SAME id.
        // The re-arm goes through Plan 02's funnel-signal helper (same signature,
