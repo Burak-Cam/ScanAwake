@@ -9,6 +9,14 @@ import 'package:no_snooze/services/alarm_service.dart';
 // [AlarmGateway] seam. We assert (a) calculateAlarmDateTime invariants survive
 // the move, and (b) scheduleAlarmFn funnels through the gateway exactly once
 // with a DateTime equal to calculateAlarmDateTime's next occurrence.
+//
+// UX-01 (quick-hb1, deliberate D-02 reversal): the HomeScreen edit branch no
+// longer early-returns for a passive (Switch off) alarm. Editing a passive
+// alarm and tapping SAVE now auto-activates it and re-arms it through the SAME
+// scheduleAlarmFn funnel exercised here — so the funnel behavior asserted by
+// the TST-02 seam below already covers the passive→active edit path. The edit
+// branch itself is a widget setState method with no extractable seam, so there
+// is (intentionally) no characterization test for it here.
 
 class MockAlarmGateway extends Mock implements AlarmGateway {}
 
