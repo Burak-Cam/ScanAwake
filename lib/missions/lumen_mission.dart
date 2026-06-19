@@ -59,12 +59,6 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
   double _progress = 0; // 0..1
   bool _finished = false; // re-entry guard on completion
 
-  // Calibration aid: last computed average-Y, shown on-screen.
-  // TODO-REMOVE-BEFORE-SHIP: transient device-calibration debug readout
-  // (RESEARCH Pitfall 4). Removed in Plan 03 after the threshold is tuned on
-  // the Redmi Note 9S. No print/logging (CLAUDE.md no-logging convention).
-  double _debugAvg = 0;
-
   // Auto-retry backoff for transient camera-acquire failures (release race on
   // the single-camera device). Mirrors scanner_screen lines 63-81.
   int _retryCount = 0;
@@ -207,7 +201,6 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() {
       _progress = progress;
-      _debugAvg = avg;
     });
   }
 
@@ -329,15 +322,17 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 16),
-            // TODO-REMOVE-BEFORE-SHIP: on-screen avg-Y calibration readout
-            // (RESEARCH Pitfall 4). Removed in Plan 03 after threshold tuning.
-            Text(
-              _streaming
-                  ? 'avgY: ${_debugAvg.toStringAsFixed(0)} / $kLumenThreshold'
-                  : AppStrings.get('camera_starting', lang),
-              style: const TextStyle(color: Colors.white30, fontSize: 12),
-            ),
+            // While the headless camera is still acquiring (notably when the
+            // mission fires over the lock screen and the prior camera is still
+            // releasing), show a "Starting Camera..." hint; once frames stream
+            // the progress bar above is the only feedback.
+            if (!_streaming) ...[
+              const SizedBox(height: 16),
+              Text(
+                AppStrings.get('camera_starting', lang),
+                style: const TextStyle(color: Colors.white30, fontSize: 12),
+              ),
+            ],
           ],
         ),
       ),
