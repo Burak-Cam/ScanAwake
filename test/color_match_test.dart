@@ -12,14 +12,14 @@ import 'package:no_snooze/models/enums.dart';
 // color/mission string.
 void main() {
   group('constant values pinned (calibration regression guard)', () {
-    test('kColorHueTolerance is 20 (±20° hue window)', () {
-      expect(kColorHueTolerance, 20);
+    test('kColorHueTolerance is 26 (±26° hue window, SC-4 calibrated)', () {
+      expect(kColorHueTolerance, 26);
     });
-    test('kColorMinSat is 0.35 (achromatic floor)', () {
-      expect(kColorMinSat, 0.35);
+    test('kColorMinSat is 0.46 (earth-tone/brown rejector, SC-4 calibrated)', () {
+      expect(kColorMinSat, 0.46);
     });
-    test('kColorMinVal is 0.25 (dark-frame floor)', () {
-      expect(kColorMinVal, 0.25);
+    test('kColorMinVal is 0.15 (near-black floor only, SC-4 calibrated)', () {
+      expect(kColorMinVal, 0.15);
     });
     test('kColorHoldMs is 1000 (~1s sustained)', () {
       expect(kColorHoldMs, 1000);

@@ -18,9 +18,11 @@ import 'mission.dart';
 /// acquire, 6-step backoff retry for the Redmi Note 9S single-camera release
 /// race, full teardown-before-onSuccess) — the ONLY material difference is the
 /// per-frame work, which samples the center ROI and converts YUV420 (Android)
-/// or BGRA8888 (iOS) → RGB → HSV instead of averaging luma. The camera runs
-/// HEADLESS (no [CameraPreview] mounted — D-06): frames are sampled in-memory
-/// only, never stored/shown/transmitted (offline app — T-05-04). Completion
+/// or BGRA8888 (iOS) → RGB → HSV instead of averaging luma. Unlike Lümen
+/// (headless, point-at-light), this mission DOES mount a live [CameraPreview]
+/// with a center ROI reticle — device testing showed a color task is unusable
+/// without seeing what you aim at (SC-4 finding). Frames are still sampled
+/// in-memory only, never stored/transmitted (offline app — T-05-04). Completion
 /// fires the [onSuccess] callback supplied by the hosting RingScreen.
 class ColorMission implements Mission {
   /// The user's language ('tr'/'en') so the mission UI localizes via
@@ -95,6 +97,14 @@ class _ColorViewState extends State<_ColorView>
   late final AnimationController _slot;
   late Animation<double> _slotAnim;
   int _targetIndex = 0;
+  // The last few landed indices — a reroll avoids repeating them so the user
+  // does not get the same color 2-3 spins in a row (device feedback).
+  final List<int> _recentTargets = [];
+  // True while the slot strip is scrolling. The slot is shown as a full-screen
+  // overlay ONLY while spinning; once it lands we reveal the camera preview +
+  // ROI reticle for the finding phase (so the target is not "spoiled" at rest
+  // before the spin completes, and the user can SEE what they aim at).
+  bool _spinning = false;
 
   // Slot strip geometry (logical px). The visible window shows one swatch; the
   // strip repeats the palette several cycles so it scrolls before settling.
@@ -108,9 +118,16 @@ class _ColorViewState extends State<_ColorView>
     // Slot controller — vsync from SingleTickerProviderStateMixin.
     _slot = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 2400),
     );
     _slotAnim = const AlwaysStoppedAnimation<double>(0);
+    // When the spin finishes, drop the slot overlay and reveal the camera +
+    // reticle finding UI.
+    _slot.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        setState(() => _spinning = false);
+      }
+    });
     // Auto-spin once on open so the user sees a target immediately (CONTEXT
     // decision). Picks _targetIndex + resets _heldMs.
     _spin();
@@ -133,23 +150,36 @@ class _ColorViewState extends State<_ColorView>
   // Resets _heldMs so a reroll mid-hold carries NO progress penalty (unlimited,
   // no-penalty reroll — MIS-02). A mid-spin tap restarts cleanly.
   void _spin() {
-    final newIndex = Random().nextInt(kColorPaletteHues.length);
+    // Pick a target that is NOT one of the last 2 landed colors (avoids 2-3
+    // repeats in a row). With 6 hues and a 2-deep history there are always ≥4
+    // candidates; the length guard is belt-and-suspenders against a loop.
+    int newIndex;
+    do {
+      newIndex = Random().nextInt(kColorPaletteHues.length);
+    } while (_recentTargets.contains(newIndex) &&
+        _recentTargets.length < kColorPaletteHues.length);
+    _recentTargets.add(newIndex);
+    if (_recentTargets.length > 2) _recentTargets.removeAt(0);
     // Land so the target swatch sits in the center window after _cycles full
     // palette scrolls (deterministic via Tween + Curves.decelerate).
     final end =
         (_cycles * kColorPaletteHues.length + newIndex) * _swatchHeight;
+    // easeOutQuart has a long slow tail so the strip visibly settles onto the
+    // landed color instead of snapping to a stop (device feedback).
     _slotAnim = Tween<double>(begin: 0, end: end)
-        .animate(CurvedAnimation(parent: _slot, curve: Curves.decelerate));
+        .animate(CurvedAnimation(parent: _slot, curve: Curves.easeOutQuart));
     if (mounted) {
       setState(() {
         _targetIndex = newIndex;
         _heldMs = 0;
         _progress = 0;
+        _spinning = true;
       });
     } else {
       _targetIndex = newIndex;
       _heldMs = 0;
       _progress = 0;
+      _spinning = true;
     }
     if (_slot.isAnimating) _slot.stop();
     _slot.forward(from: 0);
@@ -167,11 +197,12 @@ class _ColorViewState extends State<_ColorView>
         (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-      // ResolutionPreset.low: we only sample a small center ROI — high
-      // resolution wastes the isolate (RESEARCH Anti-Pattern). enableAudio:false.
+      // ResolutionPreset.medium: low (~240p) looked too coarse as a USER-FACING
+      // preview (device feedback); medium (~480p) is a clear preview while the
+      // center-ROI subsample (step 2) keeps per-frame work cheap. enableAudio:false.
       final controller = CameraController(
         cam,
-        ResolutionPreset.low,
+        ResolutionPreset.medium,
         enableAudio: false,
       );
       await controller.initialize();
@@ -233,6 +264,15 @@ class _ColorViewState extends State<_ColorView>
   // (step 2) and ROI-only so it stays cheap at 15-30fps (RESEARCH Pitfall 3).
   void _onFrame(CameraImage img) {
     if (_finished || !mounted) return;
+    // While the slot is still spinning the user cannot aim yet — do NOT
+    // accumulate hold, and clear _lastTick so the FIRST frame after the spin
+    // measures dt from "now" (a stale _lastTick would inject a huge dtMs that
+    // could complete the bar in one frame on a coincidental match — the
+    // "reroll made the bar fill by itself" device bug).
+    if (_spinning) {
+      _lastTick = null;
+      return;
+    }
 
     final sample = _sampleCenterRgb(img);
     if (sample == null) return; // malformed/short frame — skip (T-05-03 / V5).
@@ -348,6 +388,14 @@ class _ColorViewState extends State<_ColorView>
   Future<void> _finish() async {
     if (_finished) return;
     _finished = true;
+    // Swap the UI off the live preview IMMEDIATELY (before disposing the
+    // controller), so the CameraPreview texture is unmounted and cannot flash
+    // its last/stale buffer (a solid red/blue frame) during teardown while we
+    // pop back to the home screen (device feedback). build() shows a neutral
+    // success surface while _finished is true.
+    if (mounted) {
+      setState(() => _streaming = false);
+    }
     _retryTimer?.cancel();
     final cam = _cam;
     _cam = null;
@@ -389,164 +437,261 @@ class _ColorViewState extends State<_ColorView>
   @override
   Widget build(BuildContext context) {
     final lang = widget.language;
+
+    // Completion surface: shown the instant the mission succeeds, while the
+    // camera tears down and the host pops back. A neutral dark + check frame
+    // prevents the disposing CameraPreview from flashing a stale solid-color
+    // texture in this window (device feedback).
+    if (_finished) {
+      return Container(
+        color: const Color(0xFF1A237E), // indigo — matches the mission stage
+        alignment: Alignment.center,
+        child: const Icon(Icons.check_circle, color: Colors.greenAccent, size: 96),
+      );
+    }
+
     final pct = (_progress * 100).round();
     final nearDone = _progress >= 0.75;
     final targetHue = kColorPaletteHues[_targetIndex];
     final targetColor = HSVColor.fromAHSV(1, targetHue, 1, 1).toColor();
     final targetName = AppStrings.get(_kColorNameKeys[_targetIndex], lang);
 
-    // D-06 headless: NO CameraPreview is mounted — the camera streams frames in
-    // the background only. The indigo Scaffold is owned by RingScreen; this
-    // view renders on a transparent background.
-    return Container(
-      color: Colors.transparent,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        // Reused translucent card decoration from lumen_mission / ring_screen.
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              AppStrings.get('mission_color_title', lang).toUpperCase(),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
+    // MIS-02 / SC-4 (device finding): unlike Lümen (headless, point-at-light),
+    // a color task REQUIRES a live preview so the user can SEE what they aim at.
+    // We mount a full-bleed CameraPreview with a center ROI reticle marking the
+    // sampled region. The slot machine is shown as a full-screen overlay ONLY
+    // while spinning; once it lands we reveal the finding UI. The camera streams
+    // frames the whole time for sampling (preview + image stream share one
+    // controller). Still offline — nothing stored/transmitted (T-05-04).
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 1. Live camera preview (or acquiring hint).
+        Positioned.fill(child: _cameraLayer(lang)),
+
+        // 2. Center ROI reticle (the ~center region _sampleCenterRgb reads).
+        //    Hidden during the spin so the slot overlay reads cleanly.
+        if (!_spinning)
+          Center(
+            child: FractionallySizedBox(
+              widthFactor: 0.34,
+              heightFactor: 0.22,
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: nearDone ? Colors.amber : Colors.white,
+                    width: 3,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
-            const SizedBox(height: 12),
-            Text(
-              AppStrings.get('mission_color_guide', lang),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70, fontSize: 22),
-            ),
-            const SizedBox(height: 20),
-            // Slot-machine window: a scrolling vertical color strip that
-            // decelerates to rest on the target. AnimatedBuilder so only the
-            // strip rebuilds per animation frame (RESEARCH Pattern 3 — never
-            // setState per frame); the live swatch/progress update via _onFrame.
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                width: 120,
-                height: _swatchHeight,
-                child: AnimatedBuilder(
-                  animation: _slot,
-                  builder: (context, child) {
-                    return Stack(
-                      clipBehavior: Clip.hardEdge,
+          ),
+
+        // 3. Top overlay: title + guide + target swatch + live sampled swatch.
+        if (!_spinning)
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                margin: const EdgeInsets.all(12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      AppStrings.get('mission_color_guide', lang),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Transform.translate(
-                          offset: Offset(0, -_slotAnim.value % _swatchHeight -
-                              _swatchHeight),
-                          child: Column(
-                            children: List.generate(
-                              kColorPaletteHues.length + 2,
-                              (i) {
-                                final hue = kColorPaletteHues[
-                                    i % kColorPaletteHues.length];
-                                return Container(
-                                  width: 120,
-                                  height: _swatchHeight,
-                                  color:
-                                      HSVColor.fromAHSV(1, hue, 1, 1).toColor(),
-                                );
-                              },
-                            ),
-                          ),
+                        _swatch(
+                            label: targetName, color: targetColor, lang: lang),
+                        const SizedBox(width: 24),
+                        _swatch(
+                          label: AppStrings.get('mission_color_name', lang),
+                          color: _liveColor ?? Colors.white12,
+                          lang: lang,
+                          isLive: true,
                         ),
                       ],
-                    );
-                  },
+                    ),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-            // Target + live sampled-color swatches side by side.
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _swatch(
-                  label: targetName,
-                  color: targetColor,
-                  lang: lang,
+          ),
+
+        // 4. Bottom overlay: progress bar + percent + reroll.
+        if (!_spinning)
+          SafeArea(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                margin: const EdgeInsets.all(12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                const SizedBox(width: 24),
-                _swatch(
-                  label: AppStrings.get('mission_color_name', lang),
-                  color: _liveColor ?? Colors.white12,
-                  lang: lang,
-                  isLive: true,
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            // Amber closeness progress bar — parallel to Lümen's bar.
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: _progress,
-                minHeight: 12,
-                backgroundColor: Colors.white24,
-                valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '$pct%',
-              style: const TextStyle(
-                color: Colors.amber,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Near-done nudge: "HOLD STEADY!" as the bar fills.
-            if (nearDone)
-              Text(
-                AppStrings.get('mission_color_hold', lang),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.amber,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            const SizedBox(height: 16),
-            // Prominent unlimited Reroll button (MIS-02 — no penalty).
-            ElevatedButton.icon(
-              onPressed: _spin,
-              icon: const Icon(Icons.casino),
-              label: Text(AppStrings.get('mission_color_reroll', lang)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: _progress,
+                        minHeight: 12,
+                        backgroundColor: Colors.white24,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                            Colors.amber),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      nearDone
+                          ? '$pct% — ${AppStrings.get('mission_color_hold', lang)}'
+                          : '$pct%',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _spin,
+                      icon: const Icon(Icons.casino),
+                      label: Text(AppStrings.get('mission_color_reroll', lang)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-            // While the headless camera is still acquiring (notably over the
-            // lock screen while the prior camera is still releasing), show a
-            // "Starting Camera..." hint; once frames stream the bar/swatch are
-            // the feedback.
-            if (!_streaming) ...[
-              const SizedBox(height: 16),
-              Text(
-                AppStrings.get('camera_starting', lang),
-                style: const TextStyle(color: Colors.white30, fontSize: 12),
+          ),
+
+        // 5. Slot-machine overlay — shown ONLY while spinning.
+        if (_spinning)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.85),
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    AppStrings.get('mission_color_title', lang).toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  // Scrolling vertical color strip that decelerates and LANDS on
+                  // the target swatch in the window (offset == _slotAnim.value;
+                  // _spin tweens 0 → (cycles*len + targetIndex)*_swatchHeight, so
+                  // at rest the window shows palette[targetIndex]). The strip is
+                  // taller than the 1-swatch window — OverflowBox lets it exceed
+                  // the box and ClipRRect clips it (no RenderFlex overflow).
+                  // AnimatedBuilder so only the strip rebuilds per frame.
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white, width: 3),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 140,
+                        height: _swatchHeight,
+                        child: AnimatedBuilder(
+                          animation: _slot,
+                          builder: (context, child) {
+                            return OverflowBox(
+                              minHeight: 0,
+                              maxHeight: double.infinity,
+                              alignment: Alignment.topCenter,
+                              child: Transform.translate(
+                                offset: Offset(0, -_slotAnim.value),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: List.generate(
+                                    (_cycles + 1) * kColorPaletteHues.length,
+                                    (i) {
+                                      final hue = kColorPaletteHues[
+                                          i % kColorPaletteHues.length];
+                                      return Container(
+                                        width: 140,
+                                        height: _swatchHeight,
+                                        color: HSVColor.fromAHSV(1, hue, 1, 1)
+                                            .toColor(),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Full-bleed camera preview (BoxFit.cover), or a "Starting Camera..." hint
+  // while the controller is still acquiring (notably over the lock screen while
+  // the prior camera is still releasing). Preview + image-stream share one
+  // controller, so mounting the preview does not disturb _onFrame sampling.
+  Widget _cameraLayer(String lang) {
+    final cam = _cam;
+    if (!_streaming || cam == null || !cam.value.isInitialized) {
+      return Container(
+        color: Colors.black,
+        alignment: Alignment.center,
+        child: Text(
+          AppStrings.get('camera_starting', lang),
+          style: const TextStyle(color: Colors.white54, fontSize: 16),
         ),
+      );
+    }
+    final preview = cam.value.previewSize;
+    if (preview == null) return CameraPreview(cam);
+    // Preview is reported in sensor (landscape) orientation; swap W/H so cover
+    // fills a portrait mission stage without distortion.
+    return FittedBox(
+      fit: BoxFit.cover,
+      child: SizedBox(
+        width: preview.height,
+        height: preview.width,
+        child: CameraPreview(cam),
       ),
     );
   }

@@ -38,18 +38,24 @@ bool lumenComplete(int heldMs) => heldMs >= kLumenHoldMs;
 /// match. Device-calibrated under SC-4 (Plan 02 checkpoint); pinned by
 /// color_match_test.dart so calibration is a one-line const change + test
 /// update (the Lümen [kLumenThreshold] precedent).
-const double kColorHueTolerance = 20;
+const double kColorHueTolerance = 26;
 
-/// MIS-02 [ASSUMED]: minimum saturation (0..1) a frame must have for its hue to
-/// be trusted — rejects achromatic (white/black/gray) frames whose hue is
-/// undefined/unstable. Device-calibrated under SC-4; pinned by
-/// color_match_test.dart.
-const double kColorMinSat = 0.35;
+/// MIS-02: minimum saturation (0..1) a frame must have. SC-4 device calibration
+/// found this is the LOAD-BEARING discriminator that rejects EARTH TONES
+/// (brown/wood/skin) — they are dull (low-sat) versions of red/orange whose hue
+/// sits within tolerance. Measured on the Redmi Note 9S: light brown reads
+/// S≈0.40-0.41 while genuine red S≈0.52 and (even a dark) green S≈0.57; 0.46
+/// cleanly separates them. (Earlier attempts to gate on VALUE failed because a
+/// dark-but-saturated real green reads V≈0.22 — lower than brown's V≈0.37 — so
+/// value cannot separate them; saturation can.) Pinned by color_match_test.dart.
+const double kColorMinSat = 0.46;
 
-/// MIS-02 [ASSUMED]: minimum value/brightness (0..1) a frame must have — rejects
-/// dark frames where hue is unreliable. Device-calibrated under SC-4; pinned by
+/// MIS-02: minimum value/brightness (0..1) — now only rejects near-BLACK frames
+/// where hue is unstable. SC-4: kept LOW (0.15) so dark-but-saturated real
+/// objects pass (a petrol/dark green reads V≈0.21-0.22 on the Redmi Note 9S);
+/// earth-tone rejection is handled by [kColorMinSat], NOT by value. Pinned by
 /// color_match_test.dart.
-const double kColorMinVal = 0.25;
+const double kColorMinVal = 0.15;
 
 /// MIS-02 [ASSUMED]: how long (ms) a matching frame must be SUSTAINED to
 /// complete the color mission (~1s, NOT cumulative — any non-matching frame
