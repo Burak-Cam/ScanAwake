@@ -261,7 +261,12 @@ class _HomeScreenState extends State<HomeScreen> {
            // RLS-05 / D-07: safe-side 2.5s cooldown before re-firing so the
            // camera/vibration stack settles (avoids camera-busy on restart).
            await Future.delayed(const Duration(milliseconds: kCameraRestartCooldownMs));
-           final restarted = await scheduleAlarmFn(alarmSettings.id, DateTime.now().add(const Duration(milliseconds: 100)), false, currentLang, widget.currentRingtone, index != -1 ? alarms[index].label : '', AlarmKind.real);
+           // ENG-03 / MIS-01: the restart re-fire MUST carry the SAME mission as
+           // the fire that just happened — otherwise a restarted Lümen alarm
+           // silently downgrades to MissionType.none (barcode then fully closes
+           // it, losing the two-stage wake). firedMission is the decoded mission
+           // of this very fire.
+           final restarted = await scheduleAlarmFn(alarmSettings.id, DateTime.now().add(const Duration(milliseconds: 100)), false, currentLang, widget.currentRingtone, index != -1 ? alarms[index].label : '', AlarmKind.real, missionType: firedMission);
            // FIX-01: the transient restart fire above is a one-off; a REPEATING
            // alarm must still keep its next scheduled occurrence (stable id).
            final restartRearmed = await _rearmIfRepeating(index);
@@ -286,6 +291,10 @@ class _HomeScreenState extends State<HomeScreen> {
              widget.currentRingtone,
              "Snoozed",
              AlarmKind.snooze, // FIX-04 / D-03: snooze re-arm never earns streak.
+             // ENG-03 / MIS-01 / D-14: the snoozed re-fire keeps the SAME mission
+             // so snoozing can't be used to escape the Lümen task (snooze is
+             // pre-barcode only). AlarmKind.snooze still blocks the streak.
+             missionType: firedMission,
            );
            // FIX-01: the snooze above is transient; the REPEATING entity must
            // also be re-armed to its next occurrence (stable id) so it survives.
@@ -1023,7 +1032,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // RLS-04 / D-03: catch the funnel signal. If exact-alarm permission is
       // missing, the dialog is shown and the Switch is rolled back to off.
-      final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(alarms[index].id, nextTime, true, currentLang, widget.currentRingtone, alarms[index].label, AlarmKind.real));
+      // ENG-03 / MIS-01: re-enabling an alarm via the Switch must carry its
+      // persisted mission too (else a toggled-on Lümen alarm re-arms as none).
+      final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(alarms[index].id, nextTime, true, currentLang, widget.currentRingtone, alarms[index].label, AlarmKind.real, missionType: alarms[index].missionType));
       if (!ok) {
         if (mounted) setState(() => alarms[index].isActive = false);
         _saveAlarms();
