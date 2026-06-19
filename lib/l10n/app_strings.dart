@@ -95,6 +95,20 @@ class AppStrings {
     'mission_none': {'tr': 'Görev Yok', 'en': 'No Mission'},
     'mission_lumen_name': {'tr': 'Lümen (Işığa Tut)', 'en': 'Lumen (Find Light)'},
     'mission_select_title': {'tr': 'Görev Seç', 'en': 'Select Mission'},
+    // MIS-02 / ENG-03: Renk Bulma (Color Find) mission (Stage 2) strings
+    // (TR/EN parity, UI-SPEC). Every key MUST exist in both languages —
+    // enforced by color_match_test.dart parity group (Pitfall 6).
+    'mission_color_title': {'tr': '2. AŞAMA: RENK BUL', 'en': 'STAGE 2: FIND THE COLOR'},
+    'mission_color_guide': {'tr': 'BU RENKTE BİR NESNE GÖSTER', 'en': 'SHOW AN OBJECT OF THIS COLOR'},
+    'mission_color_hold': {'tr': 'NEREDEYSE TAMAM, SABIT TUT!', 'en': 'ALMOST THERE, HOLD STEADY!'},
+    'mission_color_name': {'tr': 'Renk Bul', 'en': 'Find Color'},
+    'mission_color_reroll': {'tr': 'Yeniden Çevir', 'en': 'Reroll'},
+    'color_red': {'tr': 'Kırmızı', 'en': 'Red'},
+    'color_orange': {'tr': 'Turuncu', 'en': 'Orange'},
+    'color_yellow': {'tr': 'Sarı', 'en': 'Yellow'},
+    'color_green': {'tr': 'Yeşil', 'en': 'Green'},
+    'color_blue': {'tr': 'Mavi', 'en': 'Blue'},
+    'color_purple': {'tr': 'Mor', 'en': 'Purple'},
   };
 
   static const Map<int, Map<String, String>> _dayShortNames = {
