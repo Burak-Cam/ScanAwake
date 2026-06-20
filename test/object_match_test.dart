@@ -13,8 +13,8 @@ import 'package:no_snooze/models/enums.dart';
 // string.
 void main() {
   group('constant values pinned (calibration regression guard)', () {
-    test('kObjectConfidence is 0.70 (min match confidence, SC-4 calibrated)', () {
-      expect(kObjectConfidence, 0.70);
+    test('kObjectConfidence is 0.40 (min match confidence, SC-4 calibrated)', () {
+      expect(kObjectConfidence, 0.40);
     });
     test('kObjectHoldMs is 1000 (~1s sustained)', () {
       expect(kObjectHoldMs, 1000);
@@ -28,25 +28,40 @@ void main() {
   });
 
   group('hasMatch (case-insensitive membership AND confidence floor)', () {
-    final cup = kObjectTargets['cup']!;
+    final mug = kObjectTargets['mug']!; // {'coffee mug', 'cup'}
 
     test('label in accepted set with confidence >= floor matches', () {
-      expect(hasMatch([('Cup', 0.9)], cup, kObjectConfidence), isTrue);
+      expect(hasMatch([('Cup', 0.9)], mug, kObjectConfidence), isTrue);
     });
     test('confidence below floor is rejected', () {
-      expect(hasMatch([('Cup', 0.5)], cup, kObjectConfidence), isFalse);
+      expect(hasMatch([('Cup', 0.3)], mug, kObjectConfidence), isFalse);
     });
     test('label not in accepted set is rejected', () {
-      expect(hasMatch([('Dog', 0.99)], cup, kObjectConfidence), isFalse);
+      expect(hasMatch([('Dog', 0.99)], mug, kObjectConfidence), isFalse);
     });
     test('membership is case-insensitive (cup vs Cup)', () {
-      expect(hasMatch([('cup', 0.9)], cup, kObjectConfidence), isTrue);
+      expect(hasMatch([('cup', 0.9)], mug, kObjectConfidence), isTrue);
     });
     test('confidence exactly at the floor matches (>= boundary)', () {
-      expect(hasMatch([('Cup', kObjectConfidence)], cup, kObjectConfidence), isTrue);
+      expect(hasMatch([('Cup', kObjectConfidence)], mug, kObjectConfidence), isTrue);
     });
     test('empty label list does not match', () {
-      expect(hasMatch([], cup, kObjectConfidence), isFalse);
+      expect(hasMatch([], mug, kObjectConfidence), isFalse);
+    });
+    test('concept aggregation: two sub-floor in-set labels SUM to a match', () {
+      // cup 0.30 + coffee mug 0.30 = 0.60 >= 0.40 — neither alone clears the
+      // floor, but they are the SAME concept (drinkware) so summing matches.
+      expect(
+        hasMatch([('cup', 0.30), ('coffee mug', 0.30)], mug, kObjectConfidence),
+        isTrue,
+      );
+    });
+    test('aggregation ignores out-of-set labels (only in-set confidences sum)', () {
+      // dog 0.99 is not drinkware → ignored; cup 0.30 alone < 0.40 → no match.
+      expect(
+        hasMatch([('dog', 0.99), ('cup', 0.30)], mug, kObjectConfidence),
+        isFalse,
+      );
     });
   });
 
@@ -87,12 +102,8 @@ void main() {
       'mission_object_name',
       'mission_object_reroll',
       'mission_object_detected',
-      'object_cup',
-      'object_glasses',
-      'object_phone',
-      'object_shoe',
-      'object_plant',
-      'object_bag',
+      // Per-target object_<key> names are checked exhaustively by the
+      // 'every object_<key> exists for each kObjectTargets key' test below.
     ];
 
     test('every new key returns non-empty for BOTH tr and en', () {

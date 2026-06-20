@@ -119,12 +119,18 @@ class AppStrings {
     'mission_object_name': {'tr': 'Nesne Bul', 'en': 'Find Object'},
     'mission_object_reroll': {'tr': 'Başka Nesne', 'en': 'Another Object'},
     'mission_object_detected': {'tr': 'Algılanan:', 'en': 'Detected:'},
-    'object_cup': {'tr': 'Bardak', 'en': 'Cup'},
-    'object_glasses': {'tr': 'Gözlük', 'en': 'Glasses'},
-    'object_phone': {'tr': 'Telefon', 'en': 'Phone'},
+    'object_mug': {'tr': 'Bardak / Kupa', 'en': 'Cup / Mug'},
+    'object_bottle': {'tr': 'Şişe', 'en': 'Bottle'},
+    'object_pillow': {'tr': 'Yastık', 'en': 'Pillow'},
+    'object_fruit': {'tr': 'Meyve', 'en': 'Fruit'},
     'object_shoe': {'tr': 'Ayakkabı', 'en': 'Shoe'},
-    'object_plant': {'tr': 'Bitki', 'en': 'Plant'},
-    'object_bag': {'tr': 'Çanta', 'en': 'Bag'},
+    'object_laptop': {'tr': 'Dizüstü / Laptop', 'en': 'Laptop'},
+    'object_lighter': {'tr': 'Çakmak', 'en': 'Lighter'},
+    'object_paper': {'tr': 'Havlu / Peçete', 'en': 'Towel / Tissue'},
+    'object_clock': {'tr': 'Saat', 'en': 'Clock'},
+    'object_remote': {'tr': 'Kumanda', 'en': 'Remote'},
+    'object_backpack': {'tr': 'Sırt Çantası', 'en': 'Backpack'},
+    'object_keyboard': {'tr': 'Klavye', 'en': 'Keyboard'},
   };
 
   static const Map<int, Map<String, String>> _dayShortNames = {

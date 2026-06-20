@@ -34,6 +34,11 @@ dependencies:
   # transitively via google_mlkit_image_labeling; declared directly so
   # flutter_lints 5.x `depend_on_referenced_packages` passes (flutter_fgbg precedent).
   google_mlkit_commons: ^0.11.0
+  # MIS-03 (Phase 6 custom-model pivot): copy the bundled .tflite asset to an
+  # app-support file path for LocalLabelerOptions(modelPath:). Resolved
+  # transitively (alarm/file_picker) but imported directly in object_mission.dart,
+  # so declared here for flutter_lints depend_on_referenced_packages.
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
@@ -45,3 +50,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/sounds/  # <-- Bu satır klasördeki her şeyi içeri alır
+    - assets/ml/  # MIS-03 (Phase 6): bundled on-device TFLite object-labeling model

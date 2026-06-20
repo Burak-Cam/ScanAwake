@@ -28,6 +28,12 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    // MIS-03 (Phase 6): do NOT compress the bundled .tflite object-labeling model
+    // — ML Kit memory-maps it, and a compressed asset fails to load at runtime.
+    androidResources {
+        noCompress += "tflite"
+    }
+
     defaultConfig {
         applicationId = "com.burakcam.uyan"
         // You can update the following values to match your application needs.

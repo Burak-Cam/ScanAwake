@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 // flutter_fgbg precedent) so the package we rely on is declared, not just
 // transitive.
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
@@ -107,18 +108,22 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
   bool _isBusy = false;
   DateTime _lastInfer = DateTime.fromMillisecondsSinceEpoch(0);
 
-  // The native ML Kit labeler. Created in initState; closed in BOTH _finish and
-  // dispose (RESEARCH Pitfall 5 — a leaked native detector blocks the next
-  // camera open on the single-camera device).
-  late final ImageLabeler _imageLabeler;
+  // The native ML Kit labeler. Created ASYNCHRONOUSLY in _initLabeler() (the
+  // bundled .tflite asset must first be copied to a file path for
+  // LocalLabelerOptions(modelPath:)), so it is NULLABLE — _onFrame skips until it
+  // is ready. Closed in BOTH _finish and dispose (RESEARCH Pitfall 5 — a leaked
+  // native detector blocks the next camera open on the single-camera device).
+  ImageLabeler? _imageLabeler;
 
   // Live-feedback readout: the single best (top-confidence) label of the most
   // recent inference, for the "Algılanan: <label> NN%" line.
   String? _bestLabel;
   double? _bestConfidence;
-  // SC-4 debug: the top-3 detected labels of the most recent inference. Drives
-  // the temporary calibration readout (removed before ship — see build()).
-  List<(String, double)> _debugLabels = const [];
+  // The GROUPED (summed) confidence of all detected labels that belong to the
+  // CURRENT target's accepted set — this is the value hasMatch actually uses, so
+  // the user sees the grouped score (e.g. cup 0.40 + coffee mug 0.30 = "Bardak
+  // 70%") rather than the misleadingly-low individual labels (device feedback).
+  double _targetSum = 0;
 
   // Auto-retry backoff for transient camera-acquire failures (release race on
   // the single-camera device). Mirrors color_mission lines 89-91 / 237-259.
@@ -137,13 +142,14 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Base on-device model. confidenceThreshold here pre-filters native-side, but
-    // we re-check kObjectConfidence in hasMatch so the floor is single-sourced +
-    // device-calibratable in app_constants. Set LOWER (0.5) than kObjectConfidence
-    // so the SC-4 debug readout still sees near-misses during calibration.
-    _imageLabeler = ImageLabeler(
-      options: ImageLabelerOptions(confidenceThreshold: 0.5),
-    );
+    // CUSTOM LOCAL MODEL (Phase 6 pivot): the default ML Kit model is too coarse
+    // for household items (fork→"Wheel", banana→"Insect" on the device), so we
+    // ship a bundled metadata-embedded ImageNet TFLite classifier and load it via
+    // LocalLabelerOptions. Asset→file copy is async → labeler is created in
+    // _initLabeler(). Native confidenceThreshold kept LOW (0.05) so the SC-4 debug
+    // readout sees near-misses; the real floor (kObjectConfidence) is re-checked
+    // in hasMatch (single-sourced + device-calibratable in app_constants).
+    _initLabeler();
     // Pick the first target immediately (CONTEXT decision — user sees a target on
     // open). Resets _heldMs/_progress.
     _spin();
@@ -160,6 +166,41 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
         _initCamera();
       });
     });
+  }
+
+  // Phase 6 pivot: copy the bundled .tflite asset to an app-support file ONCE
+  // (LocalLabelerOptions needs an absolute file path, not an asset path), then
+  // create the local-model labeler. Best-effort: on any failure the labeler stays
+  // null and _onFrame simply never matches (the alarm keeps ringing — core value
+  // preserved, never crashes).
+  Future<String> _copyAssetModel() async {
+    final dir = await getApplicationSupportDirectory();
+    final file = File('${dir.path}/object_labeler.tflite');
+    if (!await file.exists()) {
+      final data = await rootBundle.load('assets/ml/object_labeler.tflite');
+      await file.writeAsBytes(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        flush: true,
+      );
+    }
+    return file.path;
+  }
+
+  Future<void> _initLabeler() async {
+    try {
+      final path = await _copyAssetModel();
+      if (!mounted) return;
+      _imageLabeler = ImageLabeler(
+        options: LocalLabelerOptions(
+          confidenceThreshold: 0.05,
+          modelPath: path,
+          maxCount: 5,
+        ),
+      );
+    } catch (_) {
+      // Labeler stays null; _onFrame guards on it. Mission can't complete, but
+      // the alarm keeps ringing and the emergency stop remains reachable.
+    }
   }
 
   // MIS-03: pick a new random target, avoiding the last 2 picked keys (so the
@@ -182,7 +223,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
         _lastTick = null;
         _bestLabel = null;
         _bestConfidence = null;
-        _debugLabels = const [];
+        _targetSum = 0;
       });
     } else {
       _targetKey = newKey;
@@ -208,9 +249,13 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
       // Build the controller with nv21 (Android) / bgra8888 (iOS) — ColorMission
       // uses the default 3-plane yuv420 for HSV, which the single-plane InputImage
       // recipe cannot consume (labels would never appear). enableAudio:false.
+      // ResolutionPreset.high (~720p): the labeler recognizes better with a
+      // sharper frame than medium/480p (device feedback — low res hurt
+      // recognition). The ~400ms throttle keeps the heavier NV21 conversion off
+      // the jank path. enableAudio:false.
       final controller = CameraController(
         cam,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup:
             Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
@@ -283,10 +328,11 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
     try {
       final cam = _cam;
       final desc = _camDesc;
-      if (cam == null || desc == null) return;
+      final labeler = _imageLabeler;
+      if (cam == null || desc == null || labeler == null) return;
       final input = _inputImageFromCameraImage(img, desc, cam);
       if (input == null) return; // malformed/non-single-plane frame — skip.
-      final labels = await _imageLabeler.processImage(input);
+      final labels = await labeler.processImage(input);
       // The processImage await can outlive teardown — re-check before touching
       // state (the in-flight result is dropped after _finish/dispose).
       if (_finished || !mounted) return;
@@ -307,19 +353,24 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
         return;
       }
 
-      // Live feedback: best label + the top-3 for the SC-4 debug readout.
+      // GROUPED confidence for the current target — the same sum hasMatch uses
+      // (concept aggregation), surfaced to the UI so the grouping is VISIBLE.
+      final acc = kObjectTargets[_targetKey]!.map((e) => e.toLowerCase()).toSet();
+      double targetSum = 0;
+      for (final l in labels) {
+        if (acc.contains(l.label.toLowerCase())) targetSum += l.confidence;
+      }
+      // Live feedback: the single top raw label (informational secondary line).
       final sorted = labels.toList()
         ..sort((a, b) => b.confidence.compareTo(a.confidence));
       final best = sorted.isEmpty ? null : sorted.first;
-      final top3 =
-          sorted.take(3).map((l) => (l.label, l.confidence)).toList();
 
       if (!mounted) return;
       setState(() {
         _progress = (_heldMs / kObjectHoldMs).clamp(0.0, 1.0);
         _bestLabel = best?.label;
         _bestConfidence = best?.confidence;
-        _debugLabels = top3;
+        _targetSum = targetSum.clamp(0.0, 1.0);
       });
     } catch (_) {
       // malformed frame / native ML Kit exception — skip this tick. The dismiss
@@ -407,7 +458,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
     // Release the native ML Kit detector (RESEARCH Pitfall 5 — close on BOTH exit
     // paths; a leaked labeler blocks the next camera/model open).
     try {
-      await _imageLabeler.close();
+      await _imageLabeler?.close();
     } catch (_) {}
     if (!mounted) return;
     // Camera + labeler fully torn down — safe to hand control back to the host.
@@ -427,7 +478,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
     cam?.stopImageStream();
     cam?.dispose();
     // Close the native labeler on the mid-mission unmount path too (Pitfall 5).
-    _imageLabeler.close();
+    _imageLabeler?.close();
     super.dispose();
   }
 
@@ -455,6 +506,8 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
     final detectedLabel = _bestLabel ?? '—';
     final detectedPct =
         _bestConfidence == null ? '' : ' ${(_bestConfidence! * 100).round()}%';
+    // GROUPED match score for the current target (the value the bar uses).
+    final targetMatchPct = (_targetSum * 100).round();
 
     // MIS-03: a live preview is REQUIRED so the user can SEE what they aim at
     // (Renk SC-4 finding). Full-bleed CameraPreview + target text/icon + a live
@@ -509,56 +562,29 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  // Live "Algılanan: <label> NN%" feedback.
+                  // GROUPED match: the summed confidence of every label that maps
+                  // to this target — what the progress bar actually uses, so the
+                  // user sees "Bardak %70" not a misleadingly-low single label.
+                  Text(
+                    '$targetName: %$targetMatchPct',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // Secondary: the single top raw label (informational).
                   Text(
                     '${AppStrings.get('mission_object_detected', lang)} '
                     '$detectedLabel$detectedPct',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
+                      color: Colors.white54,
+                      fontSize: 12,
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-        // SC-4 TEMPORARY debug readout — TODO-REMOVE-BEFORE-SHIP.
-        // Surfaces the top-3 detected labels + confidences so the real
-        // base-model labels for each target can be collected on the Redmi Note 9S
-        // and the kObjectTargets table + kObjectConfidence pinned. Mirrors
-        // Lümen's avgY / Renk's live-swatch debug. Deleted in Task 4 after
-        // SC-4 device calibration (STATE.md discipline).
-        Positioned(
-          left: 8,
-          bottom: 120,
-          child: IgnorePointer(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              color: Colors.black54,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'DEBUG (SC-4):',
-                    style: TextStyle(
-                        color: Colors.greenAccent, fontSize: 11),
-                  ),
-                  if (_debugLabels.isEmpty)
-                    const Text(
-                      '(no labels)',
-                      style: TextStyle(color: Colors.white60, fontSize: 11),
-                    )
-                  else
-                    for (final l in _debugLabels)
-                      Text(
-                        '${l.$1}  ${(l.$2 * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 11),
-                      ),
                 ],
               ),
             ),
