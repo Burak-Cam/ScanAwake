@@ -95,3 +95,65 @@ int accumulateColorHold(
 /// MIS-02: the color mission is complete once accumulated [heldMs] reaches
 /// [kColorHoldMs].
 bool colorComplete(int heldMs) => heldMs >= kColorHoldMs;
+
+/// MIS-03 [ASSUMED]: minimum ML Kit label confidence (0..1) for a label to count
+/// as a match. Device-calibrated under SC-4 (Plan 02 checkpoint); pinned by
+/// object_match_test.dart so calibration is a one-line const change + test
+/// update (the Lümen [kLumenThreshold] / Renk [kColorMinSat] precedent).
+const double kObjectConfidence = 0.70;
+
+/// MIS-03 [ASSUMED]: how long (ms) a matching detection must be SUSTAINED to
+/// complete the object mission (~0.8-1s, NOT cumulative — a non-matching
+/// throttled tick RESETS to 0). Kept `>= 2 * kObjectThrottleMs` so at least two
+/// independent throttled detections are always required (noise robustness — a
+/// single false-positive label can never complete the mission). Device-calibrated
+/// under SC-4; pinned by object_match_test.dart.
+const int kObjectHoldMs = 1000;
+
+/// MIS-03 [ASSUMED]: minimum gap (ms) between ML Kit inferences (throttle).
+/// ~300-500ms avoids per-frame jank (CONTEXT decision; Pitfall 4). The sustained-
+/// hold cadence is measured between throttled ticks, so [kObjectHoldMs] is kept
+/// `>= 2 *` this value. Device-tuned under SC-4; pinned by object_match_test.dart.
+const int kObjectThrottleMs = 400;
+
+/// MIS-03: curated target key → accepted ML Kit base-model label strings.
+/// Keys are AppStrings lookup suffixes (`object_<key>`); values are EXACT
+/// base-model labels (English) — ML Kit labels stay English, the internal map
+/// translates. This is the FIRST CANDIDATE set, drawn ONLY from confirmed-present
+/// labels in the official ML Kit base-model label map (RESEARCH State of the Art:
+/// Bottle/Mug/Plate/Book are ABSENT from the model and deliberately avoided).
+/// DEVICE-VERIFIED + finalized under SC-4 (Plan 02) — the live debug readout
+/// collects the real emitted labels per target, then this table is pinned.
+/// Matching is case-insensitive (see [hasMatch]).
+const Map<String, Set<String>> kObjectTargets = {
+  'cup': {'Cup', 'Tableware', 'Coffee'}, // Bottle/Mug ABSENT → cup is the drinkware proxy
+  'glasses': {'Glasses'}, // eyewear — distinctive
+  'phone': {'Mobile phone'}, // very reliable
+  'shoe': {'Shoe', 'Sneakers'}, // footwear
+  'plant': {'Plant', 'Flower'}, // a houseplant / flower
+  'bag': {'Bag', 'Handbag'}, // a bag / backpack-as-handbag
+};
+
+/// MIS-03: true iff any returned label is in [accepted] (case-insensitive) AND
+/// its confidence is `>= floor`. Pure + ML-Kit-FREE — testable without ML Kit:
+/// takes plain `(String label, double confidence)` records, NOT `ImageLabel`, so
+/// this is the calibratable/unit-testable seam (the caller maps `ImageLabel` →
+/// tuples). Do NOT import `google_mlkit_*` here.
+bool hasMatch(List<(String label, double confidence)> labels,
+    Set<String> accepted, double floor) {
+  final lower = accepted.map((e) => e.toLowerCase()).toSet();
+  for (final l in labels) {
+    if (l.$2 >= floor && lower.contains(l.$1.toLowerCase())) return true;
+  }
+  return false;
+}
+
+/// MIS-03 / D-02 analog: pure sustained-hold accumulator (NOT cumulative). Adds
+/// [dtMs] to [heldMs] while [matched]; a single non-matching throttled tick
+/// RESETS to 0 (mirrors [accumulateHold] / [accumulateColorHold]).
+int accumulateObjectHold(int heldMs, bool matched, int dtMs) =>
+    matched ? heldMs + dtMs : 0;
+
+/// MIS-03: the object mission is complete once accumulated [heldMs] reaches
+/// [kObjectHoldMs].
+bool objectComplete(int heldMs) => heldMs >= kObjectHoldMs;
