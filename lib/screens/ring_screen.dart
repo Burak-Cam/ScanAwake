@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
 import '../missions/color_mission.dart';
 import '../missions/lumen_mission.dart';
 import '../missions/mission.dart';
 import '../missions/object_mission.dart';
+import '../missions/water_mission.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
 import '../services/prefs_service.dart';
@@ -345,7 +347,10 @@ class _RingScreenState extends State<RingScreen> {
       if (!mounted) return;
       await _softPlayer.play(
         source.isAsset ? AssetSource(source.value) : DeviceFileSource(source.value),
-        volume: 0.5,
+        // D-01: the Su Sesi mission DUCKS the soft loop to kWaterDuckVolume so the
+        // alarm bleed into the mic drops (SC-4 #1) — but it is NEVER silenced
+        // (ENG-01). All other missions keep the default 0.5.
+        volume: widget.missionType == MissionType.su ? kWaterDuckVolume : 0.5,
       );
     } catch (_) {
       // Audio handoff is best-effort: a failed soft loop must NOT trap the user
@@ -373,6 +378,7 @@ class _RingScreenState extends State<RingScreen> {
       _mission = switch (widget.missionType) {
         MissionType.renk => ColorMission(language: widget.language),
         MissionType.nesne => ObjectMission(language: widget.language),
+        MissionType.su => WaterMission(language: widget.language),
         _ => LumenMission(language: widget.language),
       };
       _missionActive = true;

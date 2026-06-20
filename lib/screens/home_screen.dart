@@ -947,6 +947,21 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Navigator.pop(context);
                                 },
                               ),
+                              // MIS-04: the Su Sesi (Water Sound) mission row. D-07:
+                              // request RECORD_AUDIO UP-FRONT here (user is awake,
+                              // off the lock-screen; this modal is not on the ring
+                              // path, so a plain request without FGBGEvents wrapping
+                              // is correct — unlike the camera ring-path request).
+                              ListTile(
+                                leading: const Icon(Icons.water_drop),
+                                title: Text(AppStrings.get('mission_water_name', currentLang)),
+                                onTap: () async {
+                                  setModalState(() => tempMissionType = MissionType.su);
+                                  await Permission.microphone.request();
+                                  if (!context.mounted) return;
+                                  Navigator.pop(context);
+                                },
+                              ),
                             ],
                           );
                         }
