@@ -30,12 +30,14 @@ void main() {
       };
 
   group('MissionType enum (D-10)', () {
-    test('contains exactly none, lumen and renk', () {
+    test('contains exactly none, lumen, renk and nesne', () {
       // D-10: a value is added only when its concrete Mission ships. lumen
-      // shipped in Phase 4; renk (ColorMission) ships in Phase 5. Pinned here so
-      // a stray/pre-declared value is caught.
+      // shipped in Phase 4; renk (ColorMission) ships in Phase 5; nesne
+      // (ObjectMission, ML Kit) ships in Phase 6 (device-free foundation in
+      // Plan 01, camera-coupled ObjectMission in Plan 02). Pinned here so a
+      // stray/pre-declared value is caught.
       expect(MissionType.values,
-          [MissionType.none, MissionType.lumen, MissionType.renk]);
+          [MissionType.none, MissionType.lumen, MissionType.renk, MissionType.nesne]);
     });
   });
 

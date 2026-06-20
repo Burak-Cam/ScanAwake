@@ -109,6 +109,22 @@ class AppStrings {
     'color_green': {'tr': 'Yeşil', 'en': 'Green'},
     'color_blue': {'tr': 'Mavi', 'en': 'Blue'},
     'color_purple': {'tr': 'Mor', 'en': 'Purple'},
+    // MIS-03 / ENG-03: Nesne Tanıma (Object Find, ML Kit) mission (Stage 2)
+    // strings (TR/EN parity, UI-SPEC). Every key MUST exist in both languages —
+    // enforced by object_match_test.dart parity group (Pitfall 6). `object_<key>`
+    // names mirror kObjectTargets keys; ML Kit labels stay English (internal map).
+    'mission_object_title': {'tr': '2. AŞAMA: NESNE BUL', 'en': 'STAGE 2: FIND THE OBJECT'},
+    'mission_object_guide': {'tr': 'ŞUNU GÖSTER:', 'en': 'SHOW THIS:'},
+    'mission_object_hold': {'tr': 'NEREDEYSE TAMAM, SABIT TUT!', 'en': 'ALMOST THERE, HOLD STEADY!'},
+    'mission_object_name': {'tr': 'Nesne Bul', 'en': 'Find Object'},
+    'mission_object_reroll': {'tr': 'Başka Nesne', 'en': 'Another Object'},
+    'mission_object_detected': {'tr': 'Algılanan:', 'en': 'Detected:'},
+    'object_cup': {'tr': 'Bardak', 'en': 'Cup'},
+    'object_glasses': {'tr': 'Gözlük', 'en': 'Glasses'},
+    'object_phone': {'tr': 'Telefon', 'en': 'Phone'},
+    'object_shoe': {'tr': 'Ayakkabı', 'en': 'Shoe'},
+    'object_plant': {'tr': 'Bitki', 'en': 'Plant'},
+    'object_bag': {'tr': 'Çanta', 'en': 'Bag'},
   };
 
   static const Map<int, Map<String, String>> _dayShortNames = {
