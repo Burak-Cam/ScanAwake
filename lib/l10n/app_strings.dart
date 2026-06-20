@@ -131,6 +131,28 @@ class AppStrings {
     'object_remote': {'tr': 'Kumanda', 'en': 'Remote'},
     'object_backpack': {'tr': 'Sırt Çantası', 'en': 'Backpack'},
     'object_keyboard': {'tr': 'Klavye', 'en': 'Keyboard'},
+    // MIS-04 (Phase 7): Su Sesi / water-sound mission. Single fixed target
+    // (D-10) — no per-target object_<key> equivalents. TR/EN parity pinned by
+    // water_match_test.dart.
+    'mission_water_title': {'tr': '2. AŞAMA: SU SESİ', 'en': 'STAGE 2: WATER SOUND'},
+    'mission_water_guide': {
+      'tr': 'Musluğu/duşu aç, telefonu sese yaklaştır',
+      'en': 'Turn on the tap/shower, bring the phone close to the sound'
+    },
+    'mission_water_hold': {
+      'tr': 'NEREDEYSE TAMAM, DEVAM ET!',
+      'en': 'ALMOST THERE, KEEP GOING!'
+    },
+    'mission_water_name': {'tr': 'Su Sesi', 'en': 'Water Sound'},
+    'mission_water_detected': {'tr': 'Su algılandı:', 'en': 'Water detected:'},
+    'mission_water_listening': {'tr': 'Dinleniyor...', 'en': 'Listening...'},
+    // D-08: in-task microphone permission gate (alarm keeps ringing; no bypass).
+    'water_permission_title': {
+      'tr': 'Mikrofon izni gerekli',
+      'en': 'Microphone permission required'
+    },
+    'water_permission_grant': {'tr': 'İzin Ver', 'en': 'Grant'},
+    'water_permission_settings': {'tr': 'Ayarlar', 'en': 'Settings'},
   };
 
   static const Map<int, Map<String, String>> _dayShortNames = {

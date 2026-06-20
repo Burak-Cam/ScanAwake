@@ -177,3 +177,76 @@ int accumulateObjectHold(int heldMs, bool matched, int dtMs) =>
 /// MIS-03: the object mission is complete once accumulated [heldMs] reaches
 /// [kObjectHoldMs].
 bool objectComplete(int heldMs) => heldMs >= kObjectHoldMs;
+
+/// MIS-04 [ASSUMED]: grouped "running water" confidence floor (0..N — the SUM of
+/// the YAMNet water-class scores via [waterGroupedScore], D-05/D-06). The
+/// kObjectConfidence analog but a grouped-sum, not a single-label confidence.
+/// Device-calibrated under SC-4 — pulled ABOVE the alarm-only grouped baseline
+/// (the alarm ringing alone must NOT clear this floor — SC-4 false-positive
+/// guard). Pinned by water_match_test.dart.
+const double kWaterConfidence = 0.50;
+
+/// MIS-04 [ASSUMED]: how long (ms) running water must be SUSTAINED to complete
+/// the mission (NOT cumulative — a single non-matching throttled tick RESETS to
+/// 0, see [accumulateWaterHold]). Kept `>= 2 * kWaterThrottleMs` so at least two
+/// independent throttled detections are always required — a single false-positive
+/// tick (alarm blip) can NEVER complete the mission (D-03/D-09). Device-calibrated
+/// under SC-4; pinned by water_match_test.dart.
+const int kWaterHoldMs = 2500;
+
+/// MIS-04 [ASSUMED]: minimum gap (ms) between YAMNet inferences (throttle). The
+/// YAMNet window is ~0.975s, so a ~1Hz cadence is sensible; per-chunk inference
+/// would jank/ANR. [kWaterHoldMs] is kept `>= 2 *` this value. Device-tuned under
+/// SC-4; pinned by water_match_test.dart.
+const int kWaterThrottleMs = 750;
+
+/// MIS-04 / D-01 [ASSUMED]: soft-loop volume (0..1) WHILE the su mission is open.
+/// ~0.18 instead of the default 0.5 — the alarm keeps ringing uninterrupted
+/// (ENG-01) but mic bleed drops so real water more easily dominates (SC-4 #1).
+/// Device-calibrated — the highest value that still eliminates the alarm-bleed
+/// false-positive. Pinned by water_match_test.dart.
+const double kWaterDuckVolume = 0.18;
+
+/// MIS-04 / D-05: the "running water" YAMNet class indices (resolved from
+/// yamnet_class_map.csv). PLACEHOLDER candidate set (Water, Water tap/faucet,
+/// Sink, Bathtub, Stream, Pour, Trickle/dribble, Gurgling, Fill) — the FINAL set
+/// is cut under SC-4 device calibration (keep classes strong on real water / weak
+/// on the alarm tone; drop alarm-confusable classes). Indices are model-version
+/// specific → resolved + device-verified in Plan 02. Intentionally empty here:
+/// the pure helpers + tests prove the grouped-sum logic without it.
+const Set<int> kWaterClassIndices = {
+  // PLACEHOLDER — filled from yamnet_class_map.csv display_name mapping in Plan 02:
+  // 'Water', 'Water tap, faucet', 'Sink (filling or washing)',
+  // 'Bathtub (filling or washing)', 'Stream', 'Pour', 'Trickle, dribble',
+  // 'Gurgling', 'Fill (with liquid)'
+};
+
+/// MIS-04 / D-05: CONCEPT AGGREGATION — sums ONLY the scores at the indices in
+/// [idx] (out-of-range / out-of-set indices ignored; returns 0 for empty [idx]).
+/// The grouped-sum analog of [hasMatch] for YAMNet's 521-class output: one real
+/// water source spreads probability across several specific water classes, each
+/// below the floor but together clearly water. Pure + TFLite-FREE (plain
+/// `List<double>` / `Set<int>`, NOT a tflite_flutter Tensor) — the
+/// calibratable/unit-testable seam. Do NOT import `tflite_flutter` or `record`.
+double waterGroupedScore(List<double> scores, Set<int> idx) {
+  double sum = 0;
+  for (final i in idx) {
+    if (i >= 0 && i < scores.length) sum += scores[i];
+  }
+  return sum;
+}
+
+/// MIS-04 / D-06: true iff the grouped water score (see [waterGroupedScore]) is
+/// `>= floor`. Pure + TFLite-FREE.
+bool hasWaterMatch(List<double> scores, Set<int> idx, double floor) =>
+    waterGroupedScore(scores, idx) >= floor;
+
+/// MIS-04 / D-09: pure sustained-hold accumulator (NOT cumulative). Adds [dtMs]
+/// to [heldMs] while [matched]; a single non-matching throttled tick RESETS to 0
+/// (mirrors [accumulateObjectHold]).
+int accumulateWaterHold(int heldMs, bool matched, int dtMs) =>
+    matched ? heldMs + dtMs : 0;
+
+/// MIS-04: the water mission is complete once accumulated [heldMs] reaches
+/// [kWaterHoldMs].
+bool waterComplete(int heldMs) => heldMs >= kWaterHoldMs;
