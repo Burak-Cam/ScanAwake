@@ -86,22 +86,22 @@ class AppStrings {
     },
     'btn_open_settings': {'tr': 'Ayarları Aç', 'en': 'Open Settings'},
     // MIS-01 / ENG-03: Lümen mission (Stage 2) strings (TR/EN parity, UI-SPEC).
-    'mission_lumen_title': {'tr': '2. AŞAMA: LÜMEN', 'en': 'STAGE 2: LUMEN'},
+    'mission_lumen_title': {'tr': '2. AŞAMA: IŞIĞI BUL', 'en': 'STAGE 2: FIND THE LIGHT'},
     'mission_lumen_guide': {'tr': 'IŞIĞA DOĞRU TUT — DAHA PARLAK!', 'en': 'POINT AT LIGHT — BRIGHTER!'},
     'mission_lumen_brighter': {'tr': 'DAHA PARLAK!', 'en': 'BRIGHTER!'},
     'mission_lumen_hold': {'tr': 'NEREDEYSE TAMAM, SABIT TUT!', 'en': 'ALMOST THERE, HOLD STEADY!'},
     'mission_sound_lowered': {'tr': 'Ses kısıldı', 'en': 'Sound lowered'},
     'mission_menu_title': {'tr': 'Görev', 'en': 'Mission'},
     'mission_none': {'tr': 'Görev Yok', 'en': 'No Mission'},
-    'mission_lumen_name': {'tr': 'Lümen (Işığa Tut)', 'en': 'Lumen (Find Light)'},
+    'mission_lumen_name': {'tr': 'Işığı Bul', 'en': 'Find Light'},
     'mission_select_title': {'tr': 'Görev Seç', 'en': 'Select Mission'},
     // MIS-02 / ENG-03: Renk Bulma (Color Find) mission (Stage 2) strings
     // (TR/EN parity, UI-SPEC). Every key MUST exist in both languages —
     // enforced by color_match_test.dart parity group (Pitfall 6).
-    'mission_color_title': {'tr': '2. AŞAMA: RENK BUL', 'en': 'STAGE 2: FIND THE COLOR'},
+    'mission_color_title': {'tr': '2. AŞAMA: RENGİ BUL', 'en': 'STAGE 2: FIND THE COLOR'},
     'mission_color_guide': {'tr': 'BU RENKTE BİR NESNE GÖSTER', 'en': 'SHOW AN OBJECT OF THIS COLOR'},
     'mission_color_hold': {'tr': 'NEREDEYSE TAMAM, SABIT TUT!', 'en': 'ALMOST THERE, HOLD STEADY!'},
-    'mission_color_name': {'tr': 'Renk Bul', 'en': 'Find Color'},
+    'mission_color_name': {'tr': 'Rengi Bul', 'en': 'Find Color'},
     'mission_color_reroll': {'tr': 'Yeniden Çevir', 'en': 'Reroll'},
     'color_red': {'tr': 'Kırmızı', 'en': 'Red'},
     'color_orange': {'tr': 'Turuncu', 'en': 'Orange'},
@@ -113,10 +113,10 @@ class AppStrings {
     // strings (TR/EN parity, UI-SPEC). Every key MUST exist in both languages —
     // enforced by object_match_test.dart parity group (Pitfall 6). `object_<key>`
     // names mirror kObjectTargets keys; ML Kit labels stay English (internal map).
-    'mission_object_title': {'tr': '2. AŞAMA: NESNE BUL', 'en': 'STAGE 2: FIND THE OBJECT'},
+    'mission_object_title': {'tr': '2. AŞAMA: NESNEYİ BUL', 'en': 'STAGE 2: FIND THE OBJECT'},
     'mission_object_guide': {'tr': 'ŞUNU GÖSTER:', 'en': 'SHOW THIS:'},
     'mission_object_hold': {'tr': 'NEREDEYSE TAMAM, SABIT TUT!', 'en': 'ALMOST THERE, HOLD STEADY!'},
-    'mission_object_name': {'tr': 'Nesne Bul', 'en': 'Find Object'},
+    'mission_object_name': {'tr': 'Nesneyi Bul', 'en': 'Find Object'},
     'mission_object_reroll': {'tr': 'Başka Nesne', 'en': 'Another Object'},
     'mission_object_detected': {'tr': 'Algılanan:', 'en': 'Detected:'},
     'object_mug': {'tr': 'Bardak / Kupa', 'en': 'Cup / Mug'},
@@ -134,7 +134,7 @@ class AppStrings {
     // MIS-04 (Phase 7): Su Sesi / water-sound mission. Single fixed target
     // (D-10) — no per-target object_<key> equivalents. TR/EN parity pinned by
     // water_match_test.dart.
-    'mission_water_title': {'tr': '2. AŞAMA: SU SESİ', 'en': 'STAGE 2: WATER SOUND'},
+    'mission_water_title': {'tr': '2. AŞAMA: SUYU BUL', 'en': 'STAGE 2: FIND THE WATER'},
     'mission_water_guide': {
       'tr': 'Musluğu/duşu aç, telefonu sese yaklaştır',
       'en': 'Turn on the tap/shower, bring the phone close to the sound'
@@ -143,7 +143,7 @@ class AppStrings {
       'tr': 'NEREDEYSE TAMAM, DEVAM ET!',
       'en': 'ALMOST THERE, KEEP GOING!'
     },
-    'mission_water_name': {'tr': 'Su Sesi', 'en': 'Water Sound'},
+    'mission_water_name': {'tr': 'Suyu Bul', 'en': 'Find Water'},
     'mission_water_detected': {'tr': 'Su algılandı:', 'en': 'Water detected:'},
     'mission_water_listening': {'tr': 'Dinleniyor...', 'en': 'Listening...'},
     // D-08: in-task microphone permission gate (alarm keeps ringing; no bypass).
