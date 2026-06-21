@@ -136,8 +136,8 @@ class AppStrings {
     // water_match_test.dart.
     'mission_water_title': {'tr': '2. AŞAMA: SU SESİNİ BUL', 'en': 'STAGE 2: FIND THE WATER SOUND'},
     'mission_water_guide': {
-      'tr': 'Musluğu/duşu aç, telefonu sese yaklaştır',
-      'en': 'Turn on the tap/shower, bring the phone close to the sound'
+      'tr': 'Musluğu aç, telefonu sese yaklaştır',
+      'en': 'Turn on the tap, bring the phone close to the sound'
     },
     'mission_water_hold': {
       'tr': 'NEREDEYSE TAMAM, DEVAM ET!',
