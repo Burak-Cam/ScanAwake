@@ -18,16 +18,16 @@ This keeps you awake and moving instead of dismissing-and-dozing.
 
 ### Wake-up tasks (missions)
 
-* **Lümen (Light)** — *available.* Point the phone at a bright light source (open the curtains, find a window) and hold it bright for a couple of seconds. Uses the camera's luminance, fully on-device.
-* **Color hunt** — *planned.* A slot machine picks a random color; show an object of that color to the camera.
-* **Object recognition (AI)** — *planned.* Show a common household item (cup, plate, cutlery); recognized on-device with ML Kit.
-* **Water sound** — *planned.* Run a tap; detected on-device with audio classification.
+* **Lümen (Light)** — Point the phone at a bright light source (open the curtains, find a window) and hold it bright for a couple of seconds. Uses the camera's luminance, fully on-device.
+* **Color hunt** — A slot machine picks a random color; show an object of that color to the camera (center-ROI HSV match, unlimited rerolls).
+* **Object recognition (AI)** — Show a common household item (cup, plate, cutlery…); recognized on-device with a bundled ImageNet (EfficientNet-Lite0) TFLite classifier + concept grouping.
+* **Water sound** — Run a tap; detected on-device with YAMNet audio classification. (During this task the alarm uses looping **vibration** instead of a soft audio loop, because the mic's audio focus would mute the loop.)
 
-Each alarm can be assigned its own task (or **none**, which behaves like the classic v1 scan-to-stop).
+All five wake-up tasks are **live (v2.0)** and device-verified. Each alarm can be assigned its own task (or **none**, which behaves like the classic v1 scan-to-stop). Every progress mission uses a *leaky* hold bar (a brief miss decays it rather than hard-resetting).
 
 ## 🔥 Gamification
 
-* **Streak** — a "fire" streak that grows each genuine wake-up. Anti-cheat: the streak only resets on a *real* escape; a crash, OEM kill, or reboot never punishes an honest streak. Test/snooze dismissals never earn a streak.
+* **Streak** — a "fire" streak that grows each genuine wake-up, with a **1-day grace** (a single missed day is forgiven; two missed days break it). Anti-cheat: a *real* escape (backgrounding the app while it rings) resets streak **and** tokens for maximum deterrence; a crash, OEM kill, or reboot never punishes an honest streak. Test/snooze dismissals never earn a streak.
 * **Snooze tokens** — a limited number of snoozes. Snoozing re-fires the same alarm **5 minutes** later, carrying the same wake-up task (so snooze can't be used to skip the mission).
 
 ## 🚀 Key features
@@ -48,10 +48,15 @@ Built with **Flutter / Dart 3**, stock `setState` (no extra state-management fra
 | Full-screen looping alarms | `alarm` 5.1.5 |
 | Barcode/QR scanning (ML Kit) | `mobile_scanner` 5.2.3 |
 | Soft-loop audio hand-off & ringtone preview | `audioplayers` 6.5.1 |
-| Lümen luminance (headless camera) | `camera` |
+| Camera frames (Lümen / Color / Object) | `camera` 0.12.0+1 |
+| Object recognition (on-device, bundled model) | `google_mlkit_image_labeling` 0.14.2 |
+| Water-sound classification (on-device YAMNet) | `tflite_flutter` 0.12.1 + `record` 6.2.1 |
+| Mission vibration (Water task) | `vibration` 3.2.0 |
 | Runtime permissions | `permission_handler` 11.4.0 |
 | Local persistence | `shared_preferences` 2.5.4 |
 | Custom ringtone picking | `file_picker` 8.3.7 |
+
+> Full inventory (versions, licenses, ML models, update/security checklist): [DEPENDENCIES.md](DEPENDENCIES.md).
 
 ### Architecture
 
@@ -59,8 +64,8 @@ The codebase is modular — `constants / models / services / screens / l10n / mi
 
 * `AlarmGateway` + `scheduleAlarmFn` — the single funnel for **all** scheduling (re-arm correctness, exact-alarm permission gate). Every dismiss path (success / snooze / restart / emergency) re-arms a repeating alarm and carries its wake-up task.
 * Pluggable `Mission` contract — `RingScreen` renders the task after a successful scan; missions return success/failure.
-* Hand-written `AlarmEntity` JSON; gamification + anti-cheat live in pure, unit-tested helpers.
-* **92 tests**, `flutter analyze` clean, CI gate + branch protection on `main`.
+* Hand-written `AlarmEntity` JSON; gamification + anti-cheat + streak-grace live in pure, unit-tested helpers.
+* **177 tests**, `flutter analyze` clean, CI gate + branch protection on `main`.
 
 ## ⚙️ Setup
 
@@ -75,7 +80,8 @@ flutter run        # or: flutter run -d <deviceId>
 
 * `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` — fire on time.
 * `USE_FULL_SCREEN_INTENT` + `showWhenLocked` / `turnScreenOn` + `WAKE_LOCK` — show the ringing/mission UI over the lock screen.
-* `CAMERA` / `FLASHLIGHT` — barcode scanning and the Lümen task.
+* `CAMERA` — barcode scanning and the camera-based tasks (Lümen / Color / Object).
+* `RECORD_AUDIO` + foreground-service `microphone` — only during the Water-sound task; audio is classified on-device and never stored or transmitted.
 * `RECEIVE_BOOT_COMPLETED`, `VIBRATE`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`.
 
 > **Xiaomi / MIUI note:** for alarms to fire reliably from a locked screen or after reboot, also grant *Autostart* and *Show on lock screen* in MIUI app settings, and exempt the app from battery optimization.
@@ -86,8 +92,10 @@ flutter run        # or: flutter run -d <deviceId>
 
 ## 📝 License
 
-MIT.
+Proprietary — © 2025-2026 Burak Çam, all rights reserved. See [LICENSE](LICENSE).
+Bundled third-party components (YAMNet, ImageNet TFLite model, Flutter/Dart
+packages) remain under their own licenses.
 
 ---
 **Developer:** Burak Çam
-**Status:** v1.0.0 shipped; v2.0 (two-stage wake) in active development.
+**Status:** v2.0 (two-stage wake) shipped — all five wake-up tasks live and device-verified; now in Play Store preparation.

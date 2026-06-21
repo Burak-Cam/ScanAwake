@@ -1,0 +1,24 @@
+ScanAwake
+Copyright (c) 2025-2026 Burak Çam. All rights reserved.
+
+This product bundles third-party components governed by their own licenses.
+The following on-device machine-learning components are licensed under the
+Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0):
+
+  - YAMNet audio-event classification model (assets/ml/yamnet.tflite)
+    © Google / TensorFlow. Provided via Google MediaPipe.
+
+  - YAMNet AudioSet class map (assets/ml/yamnet_class_map.csv)
+    From the tensorflow/models repository. © Google / TensorFlow.
+
+  - Image-classification model — EfficientNet-Lite0, ImageNet-trained
+    (assets/ml/object_labeler.tflite). © Google / TensorFlow.
+
+  - tflite_flutter (Dart package) — © The TensorFlow Authors.
+
+A copy of the Apache License, Version 2.0 is available at:
+http://www.apache.org/licenses/LICENSE-2.0
+
+Other bundled Dart/Flutter packages remain under their respective licenses;
+their full texts are aggregated in the app's in-app "Licenses" page and on each
+package's pub.dev page. See DEPENDENCIES.md for the full inventory.

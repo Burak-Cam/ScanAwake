@@ -1,21 +1,32 @@
-MIT License
+Copyright (c) 2025-2026 Burak Çam. All rights reserved.
 
-Copyright (c) 2025 Burak Çam
+ScanAwake (the "Software"), including its source code, assets, and
+documentation, is the proprietary and confidential property of Burak Çam.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+No part of the Software may be reproduced, copied, distributed, modified,
+published, sublicensed, sold, or used to create derivative works, in whole or
+in part, by any means or in any form, without the prior written permission of
+the copyright holder. Unauthorized copying, distribution, or use of the
+Software, via any medium, is strictly prohibited.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+
+This Software incorporates third-party components that remain governed by their
+own respective licenses, including but not limited to:
+
+  - YAMNet model and its class map — Apache License 2.0 (Google / TensorFlow).
+  - The bundled image-classification (ImageNet) TFLite model — Apache License 2.0.
+  - Flutter, Dart, and third-party Dart/Flutter packages — see each package's
+    own license (aggregated in-app via the standard licenses page).
+
+These components are used in accordance with their licenses. This proprietary
+license applies only to the original ScanAwake source code and assets, and does
+not override the terms of any third-party component.

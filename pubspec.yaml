@@ -17,7 +17,7 @@ dependencies:
   # detection. Already resolved transitively via `alarm` at 0.7.1; declared
   # directly so flutter_lints 5.x `depend_on_referenced_packages` passes.
   flutter_fgbg: ^0.7.1
-  file_picker: ^8.0.0  # <-- BURAYI DEĞİŞTİR (6.1.1 yerine 8.0.0 yap)
+  file_picker: ^8.0.0  # custom ringtone file picking
   mobile_scanner: ^5.2.3
   permission_handler: ^11.3.1
   shared_preferences: ^2.3.2
