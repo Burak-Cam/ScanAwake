@@ -35,7 +35,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.burakcam.uyan"
+        applicationId = "com.burakcam.scanawake"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // minSdk 26: tflite_flutter 0.12.1 floor (MIS-04 Phase 7); drops <Android 8.0
