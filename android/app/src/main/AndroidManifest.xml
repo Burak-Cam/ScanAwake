@@ -1,4 +1,18 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- SECURITY (Play hardening 2026-06-21): strip permissions that transitive ML
+         dependencies merge into the release manifest. This app is fully offline and
+         uses NO telephony/push. google_mlkit_image_labeling pulls firebase-iid +
+         vision-internal-vkp (INTERNET / ACCESS_NETWORK_STATE / c2dm push), and the
+         tflite GPU lib (targetSdk<4) IMPLIES READ_PHONE_STATE / WRITE_EXTERNAL_STORAGE.
+         ML Kit uses a BUNDLED LocalLabelerOptions model — it does not need the network,
+         so removing INTERNET is safe (device-verified on the Nesne mission). -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" tools:node="remove" />
 
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
@@ -17,15 +31,25 @@
          permission + foregroundServiceType when mic capture happens while a
          foreground service runs (the alarm's mediaPlayback NotificationService). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
-    <uses-permission android:name="android.permission.FLASHLIGHT"/>
+    <!-- SEC-01: FLASHLIGHT removed — the torch is driven through mobile_scanner's
+         camera2 path (CameraManager), which needs only CAMERA, not this legacy
+         normal-level permission. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 
     <application
         android:label="ScanAwake"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:showWhenLocked="true"
         android:turnScreenOn="true">
+
+        <!-- SECURITY: drop the unused Firebase push receiver dragged in by ML Kit
+             (firebase-iid). No push messaging is used. -->
+        <receiver
+            android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver"
+            tools:node="remove" />
         
         <activity
             android:name=".MainActivity"
