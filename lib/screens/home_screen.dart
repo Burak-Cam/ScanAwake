@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_fgbg/flutter_fgbg.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:showcaseview/showcaseview.dart';
 
 import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
@@ -70,9 +71,50 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  // Onboarding coach-mark targets (showcaseview). Highlighted once on first
+  // launch in the barcode -> streak -> token -> add-alarm order.
+  final GlobalKey _obBarcode = GlobalKey();
+  final GlobalKey _obStreak = GlobalKey();
+  final GlobalKey _obToken = GlobalKey();
+  final GlobalKey _obAddAlarm = GlobalKey();
+
   @override
   void initState() {
     super.initState();
+    // Register the showcase service so the first-launch tour (kicked off in
+    // _initializeRest) can highlight the home widgets via their GlobalKeys.
+    // A darkened, lightly blurred scrim makes the spotlit widget pop. Tapping
+    // anywhere advances to the next step, so the tooltips carry no Next button;
+    // a single static "skip tour" pill (globalFloatingActionWidget) stays pinned
+    // bottom-centre across all steps and dismisses the tour.
+    ShowcaseView.register(
+      overlayColor: Colors.black,
+      overlayOpacity: 0.78,
+      blurValue: 1.5,
+      enableAutoScroll: true,
+      globalFloatingActionWidget: (_) => FloatingActionWidget(
+        left: 0,
+        right: 0,
+        bottom: 36,
+        child: Center(
+          child: TextButton(
+            onPressed: () => ShowcaseView.get().dismiss(),
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.12),
+              foregroundColor: Colors.white,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.35))),
+            ),
+            child: Text(AppStrings.get('onboard_skip', currentLang),
+                style: const TextStyle(fontWeight: FontWeight.w500)),
+          ),
+        ),
+      ),
+    );
     _bootstrap();
   }
 
@@ -91,6 +133,17 @@ class _HomeScreenState extends State<HomeScreen> {
     await _checkPermissions();
     _startAlarmListener();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final prefs = PrefsService(await SharedPreferences.getInstance());
+      if (!mounted) return;
+      // First launch: run the onboarding tour and skip the other prompts this
+      // launch (the battery dialog shows on the next launch, no overlap).
+      if (!prefs.onboardingSeen) {
+        await prefs.setOnboardingSeen(true);
+        if (!mounted) return;
+        ShowcaseView.get().startShowCase(
+            [_obBarcode, _obStreak, _obToken, _obAddAlarm]);
+        return;
+      }
       await _offerStreakSaveIfBroken();
       if (!mounted) return;
       _checkBatteryOptimization();
@@ -169,6 +222,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     alarmSubscription?.cancel();
     _fgbgSubscription?.cancel();
+    try {
+      ShowcaseView.get().unregister();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -1168,6 +1224,48 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
   }
 
+  // Onboarding coach-mark builder: wraps [child] in a brand-themed [Showcase]
+  // for the first-launch tour. Each step takes the colour of the element it
+  // points at (barcode/alarm red, streak orange, token cyan) and shows a
+  // "step/4" counter in the title. There are no in-tooltip buttons: tapping
+  // anywhere advances, and the static "skip tour" pill (registered globally in
+  // initState) dismisses. Centralised here so the four call sites stay
+  // declarative and the styling lives in one place.
+  Widget _coachMark({
+    required GlobalKey key,
+    required String titleKey,
+    required String descKey,
+    required Color color,
+    required int step,
+    required Widget child,
+    ShapeBorder? targetShape,
+    BorderRadius? targetRadius,
+  }) {
+    const total = 4;
+    return Showcase(
+      key: key,
+      title: '${AppStrings.get(titleKey, currentLang)}  ($step/$total)',
+      description: AppStrings.get(descKey, currentLang),
+      titleTextStyle: const TextStyle(
+          color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+      descTextStyle: TextStyle(
+          color: Colors.white.withValues(alpha: 0.92),
+          fontSize: 14,
+          height: 1.3),
+      titlePadding: const EdgeInsets.only(bottom: 6),
+      tooltipBackgroundColor: color,
+      textColor: Colors.white,
+      tooltipBorderRadius: BorderRadius.circular(14),
+      tooltipPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      targetPadding: const EdgeInsets.all(6),
+      targetBorderRadius: targetRadius ?? BorderRadius.circular(10),
+      targetShapeBorder: targetShape ??
+          const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(10))),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     bool isDark = widget.currentThemeMode == ThemeMode.dark;
@@ -1182,7 +1280,14 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(), 
         ),
         actions: [
-          GestureDetector(
+          _coachMark(
+            key: _obStreak,
+            titleKey: 'onboard_streak_title',
+            descKey: 'onboard_streak_desc',
+            color: Colors.orange.shade800,
+            step: 2,
+            targetRadius: BorderRadius.circular(15),
+            child: GestureDetector(
             onTap: () => _showStatInfo('streak'),
             child: Container(
               margin: const EdgeInsets.only(left: 10),
@@ -1200,9 +1305,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-          ),
+          )),
 
-          GestureDetector(
+          _coachMark(
+            key: _obToken,
+            titleKey: 'onboard_token_title',
+            descKey: 'onboard_token_desc',
+            color: Colors.cyan.shade700,
+            step: 3,
+            targetRadius: BorderRadius.circular(15),
+            child: GestureDetector(
             onTap: () => _showStatInfo('token'),
             child: Container(
               margin: const EdgeInsets.only(right: 15, left: 8),
@@ -1220,7 +1332,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-          ),
+          )),
         ],
       ),
       drawer: Drawer(
@@ -1289,9 +1401,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addAlarm,
-        child: const Icon(Icons.add, size: 30),
+      floatingActionButton: _coachMark(
+        key: _obAddAlarm,
+        titleKey: 'onboard_add_title',
+        descKey: 'onboard_add_desc',
+        color: Colors.red.shade700,
+        step: 4,
+        targetShape: const CircleBorder(),
+        child: FloatingActionButton(
+          onPressed: _addAlarm,
+          child: const Icon(Icons.add, size: 30),
+        ),
       ),
       body: Column(
         children: [
@@ -1299,16 +1419,23 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                Row(
+                _coachMark(
+                  key: _obBarcode,
+                  titleKey: 'onboard_barcode_title',
+                  descKey: 'onboard_barcode_desc',
+                  color: Colors.red.shade700,
+                  step: 1,
+                  targetRadius: BorderRadius.circular(12),
+                  child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text("${AppStrings.get('saved_items', currentLang)} (${savedBarcodes.length}/3)", 
+                    Text("${AppStrings.get('saved_items', currentLang)} (${savedBarcodes.length}/3)",
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87)
                     ),
                     if (savedBarcodes.length < kMaxBarcodes)
                       IconButton(onPressed: _scanAndAddBarcode, icon: Icon(Icons.qr_code_scanner, color: isDark ? Colors.white : Colors.black, size: 24))
                   ],
-                ),
+                )),
                 if (savedBarcodes.isEmpty)
                    Padding(
                      padding: const EdgeInsets.all(8.0),

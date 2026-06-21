@@ -34,6 +34,9 @@ abstract final class PrefsKeys {
   /// Whether the battery-optimization warning was shown. Defaults false.
   static const String batteryDialogSeen = 'battery_dialog_seen';
 
+  /// Whether the first-launch onboarding showcase was shown. Defaults false.
+  static const String onboardingSeen = 'onboarding_seen';
+
   /// JSON-encoded list of alarms. Nullable.
   static const String alarmsData = 'alarms_data';
 

@@ -60,6 +60,12 @@ class PrefsService {
   Future<void> setBatteryDialogSeen(bool v) =>
       _prefs.setBool(PrefsKeys.batteryDialogSeen, v);
 
+  // --- onboarding_seen (default false) ---
+  bool get onboardingSeen =>
+      _prefs.getBool(PrefsKeys.onboardingSeen) ?? false;
+  Future<void> setOnboardingSeen(bool v) =>
+      _prefs.setBool(PrefsKeys.onboardingSeen, v);
+
   // --- alarms_data (nullable) ---
   String? get alarmsData => _prefs.getString(PrefsKeys.alarmsData);
   Future<void> setAlarmsData(String v) =>

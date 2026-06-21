@@ -33,6 +33,13 @@ Future<void> main() async {
     statusBarIconBrightness: Brightness.light,
   ));
 
+  // Lock the app to portrait so the UI never rotates with the device — an alarm
+  // app has no landscape layout and the lock-screen ring/scan flow must stay
+  // upright. Mirrors android:screenOrientation="portrait" on MainActivity (this
+  // also covers iOS, whose Info.plist still lists landscape).
+  await SystemChrome.setPreferredOrientations(
+      const [DeviceOrientation.portraitUp]);
+
   runApp(const ScanAwakeApp());
 }
 

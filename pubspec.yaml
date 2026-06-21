@@ -51,6 +51,9 @@ dependencies:
   # API surface (startStream + RecordConfig). Used by water_mission.dart.
   record: ^6.1.1
   vibration: ^3.2.0
+  # First-launch onboarding coach-marks (spotlight + arrow + tooltip). Used by
+  # home_screen.dart to introduce barcode/streak/token/add-alarm on first run.
+  showcaseview: ^5.0.0
 
 dev_dependencies:
   flutter_test:
