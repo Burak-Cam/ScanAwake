@@ -14,7 +14,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.35.0 # matches lockfile floor; or pin a 3.35.x patch
+          flutter-version: 3.41.7 # matches lockfile floor (Phase 7 vibration ^3.2.0 needs Dart ^3.11.0); device-verified toolchain
           cache: true
       - run: flutter pub get
       - run: flutter analyze --fatal-warnings
