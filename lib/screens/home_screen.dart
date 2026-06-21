@@ -460,13 +460,26 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadPreferences() async {
     final prefs = PrefsService(await SharedPreferences.getInstance());
     if (!mounted) return;
+    // STREAK-GRACE: a real streak decays on inactivity. If 2+ days have been
+    // missed since the last counted wake (streakAlive false), the streak is
+    // dead — reset it to 0 here so the home screen shows the honest value before
+    // the next wake. Snooze tokens are KEPT on a natural lapse; only a genuine
+    // cheat (decideCheat reset) wipes tokens.
+    int loadedStreak = prefs.userStreak;
+    if (loadedStreak > 0 &&
+        !streakAlive(
+            prefs.lastScanDate, DateTime.now().toString().split(' ')[0])) {
+      loadedStreak = 0;
+      await prefs.setUserStreak(0);
+      if (!mounted) return;
+    }
     // FIX-03 / D-05: per-entry resilient parse — a single corrupt record skips
     // only itself instead of wiping the whole list (no app crash on load).
     final String? alarmsJson = prefs.alarmsData;
     final (parsedAlarms, skipped) = parseAlarmsResilient(alarmsJson);
     setState(() {
       savedBarcodes = prefs.targetBarcodes;
-      streakCount = prefs.userStreak;
+      streakCount = loadedStreak;
       snoozeTokens = prefs.snoozeTokens;
       alarms = parsedAlarms;
     });
@@ -487,69 +500,6 @@ class _HomeScreenState extends State<HomeScreen> {
     await prefs.setAlarmsData(encoded);
   }
 
-  Future<void> _testAlarm() async {
-    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
-      Navigator.pop(context);
-    }
-    
-    if (savedBarcodes.isEmpty) {
-      _showSnack(AppStrings.get('add_item_first', currentLang));
-      return;
-    }
-    final now = DateTime.now();
-    final prefs = PrefsService(await SharedPreferences.getInstance());
-    final testId = await nextAlarmId(prefs);
-    // RLS-04 / D-03: route through the funnel-signal helper; if exact-alarm
-    // permission is missing the dialog is shown and we return silently.
-    final ok = await _ensureExactAlarmOrPrompt(() => scheduleAlarmFn(
-      testId,
-      now.add(const Duration(seconds: 5)),
-      true,
-      currentLang,
-      widget.currentRingtone,
-      "Test",
-      AlarmKind.test, // FIX-04 / D-03: a test alarm never earns streak.
-    ));
-    if (!mounted || !ok) return;
-    _showSnack(AppStrings.get('test_start', currentLang));
-  }
-
-  void _showDeveloperOptions() {
-    int tempStreak = streakCount;
-    int tempTokens = snoozeTokens;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(AppStrings.get('developer_mode', currentLang), style: const TextStyle(color: Colors.blueAccent)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Streak:"), Row(children: [IconButton(icon: const Icon(Icons.remove), onPressed: () => setDialogState(() => tempStreak = (tempStreak > 0) ? tempStreak - 1 : 0)), Text("$tempStreak", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), IconButton(icon: const Icon(Icons.add), onPressed: () => setDialogState(() => tempStreak++))])]),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Tokens:"), Row(children: [IconButton(icon: const Icon(Icons.remove), onPressed: () => setDialogState(() => tempTokens = (tempTokens > 0) ? tempTokens - 1 : 0)), Text("$tempTokens", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), IconButton(icon: const Icon(Icons.add), onPressed: () => setDialogState(() => tempTokens = (tempTokens < 3) ? tempTokens + 1 : 3))])]),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () async {
-                    final prefs = PrefsService(await SharedPreferences.getInstance());
-                    await prefs.setUserStreak(tempStreak);
-                    await prefs.setSnoozeTokens(tempTokens);
-                    setState(() { streakCount = tempStreak; snoozeTokens = tempTokens; });
-                    if(context.mounted) Navigator.pop(context);
-                  },
-                  child: const Text("SAVE", style: TextStyle(fontWeight: FontWeight.bold)),
-                )
-              ],
-            );
-          }
-        );
-      },
-    );
-  }
 
   // --- RINGTONE PICKER WITH PREVIEW (FIXED) ---
   void _showRingtonePicker() {
@@ -1164,10 +1114,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       key: _scaffoldKey, 
       appBar: AppBar(
-        title: GestureDetector(
-          onLongPress: _showDeveloperOptions,
-          child: const Text("ScanAwake", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2)),
-        ),
+        title: const Text("ScanAwake", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2)),
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.menu),
@@ -1267,9 +1214,16 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.play_circle_filled, color: Colors.green),
-              title: Text(AppStrings.get('test_alarm_menu', currentLang)),
-              onTap: _testAlarm,
+              leading: const Icon(Icons.description_outlined),
+              title: Text(AppStrings.get('licenses_menu', currentLang)),
+              onTap: () {
+                showLicensePage(
+                  context: context,
+                  applicationName: 'ScanAwake',
+                  applicationVersion: AppStrings.get('app_version', currentLang),
+                  applicationLegalese: '© 2025-2026 Burak Çam',
+                );
+              },
             ),
           ],
         ),

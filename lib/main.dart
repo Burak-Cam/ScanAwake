@@ -1,5 +1,6 @@
 import 'dart:ui' show PlatformDispatcher;
 import 'package:alarm/alarm.dart';
+import 'package:flutter/foundation.dart' show LicenseRegistry, LicenseEntryWithLineBreaks;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -12,6 +13,20 @@ import 'screens/home_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Alarm.init();
+
+  // Formality: surface the bundled on-device ML models' Apache-2.0 attribution
+  // in the in-app Licenses page (showLicensePage). Dart/Flutter package licenses
+  // are aggregated automatically; the bundled models are not, so register them.
+  // See the NOTICE file. (LicenseRegistry collects lazily on first open.)
+  LicenseRegistry.addLicense(() async* {
+    yield const LicenseEntryWithLineBreaks(
+      ['ScanAwake — bundled ML models'],
+      'The bundled on-device models (YAMNet audio classifier + its AudioSet '
+      'class map, and the EfficientNet-Lite0 ImageNet image classifier) are '
+      '© Google / TensorFlow and licensed under the Apache License, Version 2.0. '
+      'See the NOTICE file and http://www.apache.org/licenses/LICENSE-2.0.',
+    );
+  });
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,

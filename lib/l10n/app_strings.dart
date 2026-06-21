@@ -22,7 +22,6 @@ class AppStrings {
     'item_exists': {'tr': 'Bu ürün zaten ekli!', 'en': 'Item already exists!'},
     'item_added': {'tr': 'Ürün Eklendi! ✅', 'en': 'Item Added! ✅'},
     'add_item_first': {'tr': 'Önce barkod ekle!', 'en': 'Add an item first!'},
-    'test_start': {'tr': '5 saniye sonra çalacak...', 'en': 'Ringing in 5 seconds...'},
     'battery_title': {'tr': '⚠️ Önemli Uyarı', 'en': '⚠️ Important'},
     'battery_desc': {
       'tr': 'Alarmın garanti çalması ve uygulamanın kapanmaması için açılan ekranda şunları yapmalısınız:\n\n'
@@ -49,14 +48,13 @@ class AppStrings {
     'ringtone_menu': {'tr': 'Zil Sesi', 'en': 'Ringtone'},
     'language_menu': {'tr': 'Dil / Language', 'en': 'Language'},
     'dark_mode_menu': {'tr': 'Karanlık Mod', 'en': 'Dark Mode'},
-    'test_alarm_menu': {'tr': 'Alarmı Test Et', 'en': 'Test Alarm'},
+    'licenses_menu': {'tr': 'Lisanslar', 'en': 'Licenses'},
     'select_ringtone': {'tr': 'Zil Sesi Seç', 'en': 'Select Ringtone'},
     'pick_from_files': {'tr': 'Dosyalardan Seç...', 'en': 'Pick from files...'},
     'weekly_msg': {'tr': 'TEBRİKLER! BİR HAFTAYI DEVİRDİN! 🏆', 'en': 'CONGRATS! YOU CRUSHED A WEEK! 🏆'},
     'snooze_btn': {'tr': 'Zzz Ertele', 'en': 'Zzz Snooze'},
     'snooze_used': {'tr': 'Alarm 5dk ertelendi. Jeton kullanıldı.', 'en': 'Alarm snoozed for 5m. Token used.'},
     'alarms_not_restored': {'tr': '{n} alarm geri yüklenemedi', 'en': '{n} alarm(s) could not be restored'},
-    'developer_mode': {'tr': '🛠️ Geliştirici Modu', 'en': '🛠️ Developer Mode'},
     'no_alarms_set': {'tr': 'Henüz Alarm Kurulmadı', 'en': 'No Alarms Set'},
     'select_days': {'tr': 'Tekrarlanacak Günleri Seç', 'en': 'Select Repeat Days'},
     'select_day_warning': {'tr': 'En az bir gün seçmelisiniz!', 'en': 'You must select at least one day!'},
