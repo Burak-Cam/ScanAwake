@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vibration/vibration.dart';
 
 import '../l10n/app_strings.dart';
 import '../missions/color_mission.dart';
 import '../missions/lumen_mission.dart';
 import '../missions/mission.dart';
 import '../missions/object_mission.dart';
+import '../missions/water_mission.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
 import '../services/prefs_service.dart';
@@ -84,6 +86,8 @@ class _RingScreenState extends State<RingScreen> {
   int _retryCount = 0;
   static const int _maxRetries = 5;
   Timer? _retryTimer;
+  // SC-4: su mission uses a looping vibration (not audio) as the wake pressure.
+  Timer? _missionVibrationTimer;
 
   // ENG-01: Stage-2 state. _missionActive flips the whole screen from the red
   // barcode scanner to the indigo mission surface (D-07). _softPlayer is the
@@ -338,15 +342,26 @@ class _RingScreenState extends State<RingScreen> {
     // (prefix stripped) vs DeviceFileSource (custom file).
     final source = resolveSoftLoopSource(widget.ringtonePath);
     try {
-      // RESEARCH Pattern 1 audio-context note: hold media focus in the
-      // foreground alarm activity so the soft loop keeps playing (incl. under
-      // lock — SC-4 device-verified in Task 2).
-      await _softPlayer.setReleaseMode(ReleaseMode.loop);
-      if (!mounted) return;
-      await _softPlayer.play(
-        source.isAsset ? AssetSource(source.value) : DeviceFileSource(source.value),
-        volume: 0.5,
-      );
+      if (widget.missionType == MissionType.su) {
+        // SC-4 device finding (2026-06-21): the record mic grabs audio focus the
+        // moment it opens, so audioplayers pauses the soft loop (AUDIOFOCUS_LOSS)
+        // — the alarm goes momentarily audible then silent. Forcing it to keep
+        // playing (audioFocus none) only yields an unusably quiet alarm that also
+        // bleeds into the mic. So for the su mission we DROP the soft-loop audio
+        // and use a looping VIBRATION as the wake pressure (ENG-01 honored as
+        // haptics) — it does not contend with the water-detection mic.
+        _startMissionVibration();
+      } else {
+        // RESEARCH Pattern 1 audio-context note: hold media focus in the
+        // foreground alarm activity so the soft loop keeps playing (incl. under
+        // lock — SC-4 device-verified in Task 2).
+        await _softPlayer.setReleaseMode(ReleaseMode.loop);
+        if (!mounted) return;
+        await _softPlayer.play(
+          source.isAsset ? AssetSource(source.value) : DeviceFileSource(source.value),
+          volume: 0.5, // ENG-01: ducked-but-audible; never silenced.
+        );
+      }
     } catch (_) {
       // Audio handoff is best-effort: a failed soft loop must NOT trap the user
       // (core value). The mission still proceeds; the alarm-package audio is
@@ -373,10 +388,40 @@ class _RingScreenState extends State<RingScreen> {
       _mission = switch (widget.missionType) {
         MissionType.renk => ColorMission(language: widget.language),
         MissionType.nesne => ObjectMission(language: widget.language),
+        MissionType.su => WaterMission(language: widget.language),
         _ => LumenMission(language: widget.language),
       };
       _missionActive = true;
     });
+  }
+
+  // SC-4 (su mission): loop a strong vibration as the wake pressure in place of
+  // the soft-loop audio (which the record mic's audio-focus grab silences, and
+  // which is too quiet to be useful anyway). HapticFeedback.heavyImpact was NOT
+  // noticeable on MIUI (device-tested), so use the Vibrator service (vibration
+  // package): a 700ms buzz re-triggered on a timer (robust regardless of the
+  // platform `repeat` semantics). Cancelled in _onMissionSuccess + dispose.
+  Future<void> _startMissionVibration() async {
+    try {
+      if ((await Vibration.hasVibrator()) != true) return;
+    } catch (_) {
+      return; // best-effort: no vibrator / channel error must not trap the user.
+    }
+    if (!mounted) return;
+    // SC-4 device finding: a strong continuous buzz (700ms/255 every 1.1s) shook
+    // the phone and bled into the mic, slowing water detection (the buzz landed
+    // in nearly every ~0.975s inference window). Use a softer, sparser pulse —
+    // 450ms at amplitude 160 every 1.6s — so ~1.15s of each cycle is a quiet
+    // window for clean YAMNet capture, while the pulse stays a felt nudge.
+    void buzz() {
+      try {
+        Vibration.vibrate(duration: 450, amplitude: 160);
+      } catch (_) {}
+    }
+
+    buzz();
+    _missionVibrationTimer =
+        Timer.periodic(const Duration(milliseconds: 1600), (_) => buzz());
   }
 
   // ENG-02 / Pattern 3: the mission-success callback handed to the Mission. This
@@ -390,6 +435,10 @@ class _RingScreenState extends State<RingScreen> {
     if (_missionDone) return;
     _missionDone = true;
 
+    _missionVibrationTimer?.cancel(); // SC-4: stop the su-mission vibration.
+    try {
+      Vibration.cancel();
+    } catch (_) {}
     await _softPlayer.stop();
     HapticFeedback.heavyImpact();
 
@@ -459,6 +508,10 @@ class _RingScreenState extends State<RingScreen> {
   void dispose() {
     _emergencyTimer?.cancel();
     _retryTimer?.cancel();
+    _missionVibrationTimer?.cancel(); // SC-4: stop the su-mission vibration.
+    try {
+      Vibration.cancel();
+    } catch (_) {}
     controller?.dispose();
     // ENG-01: best-effort teardown of the Stage-2 soft loop.
     _softPlayer.stop();

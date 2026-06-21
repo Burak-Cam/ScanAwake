@@ -24,7 +24,11 @@ enum RingResult { restart, snooze, success, emergency }
 /// Phase 5 (ColorMission lands in Plan 02); `nesne` (ObjectMission, ML Kit
 /// image labeling) ships in Phase 6 (the device-free foundation — consts +
 /// strings + pure match helpers — lands in Plan 01, the camera-coupled
-/// ObjectMission in Plan 02). `water` etc. remain unlisted until their own
+/// ObjectMission in Plan 02); `su` (WaterMission, on-device YAMNet/TFLite water-
+/// sound classification) ships in Phase 7 (the device-free foundation — consts +
+/// strings + pure match helpers — lands in Plan 01, the mic-coupled WaterMission
+/// in Plan 02). `su` is appended LAST so existing persisted indices are unchanged
+/// (back-compat persistence). Future values remain unlisted until their own
 /// phases. The defensive decode discipline below (`asNameMap()[x] ?? none`)
 /// absorbs the new value with no other change.
 ///
@@ -32,4 +36,4 @@ enum RingResult { restart, snooze, success, emergency }
 /// (RESEARCH Pattern 3): a failing mission keeps the alarm running; the screen
 /// pops only on the four existing [RingResult]s. A half-migrated result enum
 /// would regress the FIX-01 re-arm guarantee.
-enum MissionType { none, lumen, renk, nesne }
+enum MissionType { none, lumen, renk, nesne, su }

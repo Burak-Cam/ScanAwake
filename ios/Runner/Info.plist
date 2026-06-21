@@ -48,6 +48,9 @@
     
     <key>NSCameraUsageDescription</key>
     <string>Alarmı susturmak ve barkodu okutmak için kamera izni gerekiyor.</string>
-    
+
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Alarm görevinde su sesini algılamak için mikrofon izni gerekiyor.</string>
+
 </dict>
 </plist>

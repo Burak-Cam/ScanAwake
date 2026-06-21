@@ -39,6 +39,18 @@ dependencies:
   # transitively (alarm/file_picker) but imported directly in object_mission.dart,
   # so declared here for flutter_lints depend_on_referenced_packages.
   path_provider: ^2.1.5
+  # MIS-04 (Phase 7): raw on-device TFLite inference over a bundled offline YAMNet
+  # model (assets/ml/yamnet.tflite) — fully offline, no network, no Firebase.
+  # Official tensorflow/flutter-tflite (pub.dev). Used by
+  # lib/missions/water_mission.dart to classify the running-water sound. Requires
+  # Android minSdk 26 (see android/app/build.gradle.kts).
+  tflite_flutter: ^0.12.1
+  # MIS-04 (Phase 7): 16kHz mono PCM16 mic stream feeding the YAMNet sliding
+  # buffer. Official llfbandit/record (pub.dev). Pinned to 6.x (6.1.1 floor): the
+  # 7.x line was not cleared for this device/flow at plan-time, so we keep the 6.x
+  # API surface (startStream + RecordConfig). Used by water_mission.dart.
+  record: ^6.1.1
+  vibration: ^3.2.0
 
 dev_dependencies:
   flutter_test:

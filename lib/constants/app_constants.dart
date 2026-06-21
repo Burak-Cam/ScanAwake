@@ -177,3 +177,87 @@ int accumulateObjectHold(int heldMs, bool matched, int dtMs) =>
 /// MIS-03: the object mission is complete once accumulated [heldMs] reaches
 /// [kObjectHoldMs].
 bool objectComplete(int heldMs) => heldMs >= kObjectHoldMs;
+
+/// MIS-04 [ASSUMED]: grouped "running water" confidence floor (0..N — the SUM of
+/// the YAMNet water-class scores via [waterGroupedScore], D-05/D-06). The
+/// kObjectConfidence analog but a grouped-sum, not a single-label confidence.
+/// Device-calibrated under SC-4 — pulled ABOVE the alarm-only grouped baseline
+/// (the alarm ringing alone must NOT clear this floor — SC-4 false-positive
+/// guard). Pinned by water_match_test.dart.
+/// SC-4 device-calibrated (Redmi Note 9S, 2026-06-21): grouped sum of the 4
+/// water classes is ~2.0 on close running water vs 0.00 on the ducked-alarm
+/// baseline (zero bleed). 0.70 sits well above baseline and is reliably cleared
+/// by tap/sink/shower held near the mic; marginal/distant water is rejected.
+const double kWaterConfidence = 0.70;
+
+/// MIS-04 [ASSUMED]: how long (ms) running water must be SUSTAINED to complete
+/// the mission (NOT cumulative — a single non-matching throttled tick RESETS to
+/// 0, see [accumulateWaterHold]). Kept `>= 2 * kWaterThrottleMs` so at least two
+/// independent throttled detections are always required — a single false-positive
+/// tick (alarm blip) can NEVER complete the mission (D-03/D-09). Device-calibrated
+/// under SC-4; pinned by water_match_test.dart.
+const int kWaterHoldMs = 2500;
+
+/// MIS-04 [ASSUMED]: minimum gap (ms) between YAMNet inferences (throttle). The
+/// YAMNet window is ~0.975s, so a ~1Hz cadence is sensible; per-chunk inference
+/// would jank/ANR. [kWaterHoldMs] is kept `>= 2 *` this value. Device-tuned under
+/// SC-4; pinned by water_match_test.dart.
+const int kWaterThrottleMs = 750;
+
+// NOTE (SC-4, 2026-06-21): the planned `kWaterDuckVolume` soft-loop-duck constant
+// was REMOVED. On-device the record mic's audio-focus grab silenced the soft loop
+// (audioplayers pauses on AUDIOFOCUS_LOSS), and even when forced to keep playing
+// it was inaudible while still bleeding into the mic. The su mission therefore
+// drops the soft-loop audio entirely and uses a looping VIBRATION as the wake
+// pressure (ring_screen._startMissionVibration) — there is no duck volume to tune.
+
+/// MIS-04 / D-05: the "running water" YAMNet class indices (resolved from
+/// yamnet_class_map.csv, MediaPipe YAMNet [15600]->[1,521]).
+/// SC-4 device-calibrated (Redmi Note 9S, 2026-06-21): across bathroom-sink,
+/// shower, and kitchen taps these 4 classes carry essentially all the signal
+/// (Sink + Water-tap-faucet dominate at 0.4-0.85; Water + Bathtub add tail),
+/// while the ducked-alarm baseline fires NONE of them (grouped 0.00). Hiss /
+/// Steam / Snake (shower spray) were deliberately EXCLUDED — they also fire on
+/// non-water sounds and would erode the false-positive guard.
+const Set<int> kWaterClassIndices = {
+  282, // Water
+  364, // Water tap, faucet
+  365, // Sink (filling or washing)
+  366, // Bathtub (filling or washing)
+};
+
+/// MIS-04 / D-05: CONCEPT AGGREGATION — sums ONLY the scores at the indices in
+/// [idx] (out-of-range / out-of-set indices ignored; returns 0 for empty [idx]).
+/// The grouped-sum analog of [hasMatch] for YAMNet's 521-class output: one real
+/// water source spreads probability across several specific water classes, each
+/// below the floor but together clearly water. Pure + TFLite-FREE (plain
+/// `List<double>` / `Set<int>`, NOT a tflite_flutter Tensor) — the
+/// calibratable/unit-testable seam. Do NOT import `tflite_flutter` or `record`.
+double waterGroupedScore(List<double> scores, Set<int> idx) {
+  double sum = 0;
+  for (final i in idx) {
+    if (i >= 0 && i < scores.length) sum += scores[i];
+  }
+  return sum;
+}
+
+/// MIS-04 / D-06: true iff the grouped water score (see [waterGroupedScore]) is
+/// `>= floor`. Pure + TFLite-FREE.
+bool hasWaterMatch(List<double> scores, Set<int> idx, double floor) =>
+    waterGroupedScore(scores, idx) >= floor;
+
+/// MIS-04 / D-09: pure sustained-hold accumulator with LEAKY decay. Adds [dtMs]
+/// to [heldMs] while [matched]; on a miss it DECAYS by half a tick (`dtMs ~/ 2`)
+/// clamped at 0 — NOT a hard reset. SC-4 device finding (2026-06-21): YAMNet
+/// intermittently misreads real running water as Toothbrush/Insect/Cricket for a
+/// tick or two, and the old hard reset wiped near-complete progress (observed
+/// twice at 2402/2500 ms). Half-rate decay lets a brief misclassification cost
+/// only one tick while sustained non-water still drains to 0 (real, mostly-
+/// continuous water nets positive and completes).
+int accumulateWaterHold(int heldMs, bool matched, int dtMs) => matched
+    ? heldMs + dtMs
+    : (heldMs - (dtMs ~/ 2)).clamp(0, kWaterHoldMs);
+
+/// MIS-04: the water mission is complete once accumulated [heldMs] reaches
+/// [kWaterHoldMs].
+bool waterComplete(int heldMs) => heldMs >= kWaterHoldMs;

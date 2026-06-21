@@ -8,6 +8,15 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- MIS-04 (Phase 7): the microphone is used ONLY while a "Su Sesi" alarm task
+         is active, to detect running-water sound on-device (offline YAMNet). Audio
+         stays in an in-memory buffer; it is never recorded to disk or sent over the
+         network, and capture ends when the mission ends. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- MIS-04 (Phase 7): targetSdk 36 (>= 34) requires an explicit FGS-microphone
+         permission + foregroundServiceType when mic capture happens while a
+         foreground service runs (the alarm's mediaPlayback NotificationService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.FLASHLIGHT"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 
@@ -53,7 +62,7 @@
             android:name="com.gdelataillade.alarm.services.NotificationService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback"
+            android:foregroundServiceType="mediaPlayback|microphone"
             android:stopWithTask="false" />
             
         </application>

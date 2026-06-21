@@ -30,14 +30,27 @@ void main() {
       };
 
   group('MissionType enum (D-10)', () {
-    test('contains exactly none, lumen, renk and nesne', () {
+    test('contains exactly none, lumen, renk, nesne and su', () {
       // D-10: a value is added only when its concrete Mission ships. lumen
       // shipped in Phase 4; renk (ColorMission) ships in Phase 5; nesne
       // (ObjectMission, ML Kit) ships in Phase 6 (device-free foundation in
-      // Plan 01, camera-coupled ObjectMission in Plan 02). Pinned here so a
+      // Plan 01, camera-coupled ObjectMission in Plan 02); su (WaterMission,
+      // YAMNet/TFLite) ships in Phase 7. `su` is appended LAST so existing
+      // persisted indices are unchanged (back-compat). Pinned here so a
       // stray/pre-declared value is caught.
-      expect(MissionType.values,
-          [MissionType.none, MissionType.lumen, MissionType.renk, MissionType.nesne]);
+      expect(MissionType.values, [
+        MissionType.none,
+        MissionType.lumen,
+        MissionType.renk,
+        MissionType.nesne,
+        MissionType.su,
+      ]);
+    });
+
+    test("asNameMap()['su'] resolves non-null (was null pre-Phase-7)", () {
+      // The new su value now resolves through the defensive decode; before
+      // Phase 7 'su' was an unknown value that fell to none.
+      expect(MissionType.values.asNameMap()['su'], MissionType.su);
     });
   });
 
@@ -50,6 +63,11 @@ void main() {
     test("missionType:'lumen' => MissionType.lumen", () {
       final e = AlarmEntity.fromJson(baseEntry(mission: 'lumen'));
       expect(e.missionType, MissionType.lumen);
+    });
+
+    test("missionType:'su' => MissionType.su (Phase 7 round-trip)", () {
+      final e = AlarmEntity.fromJson(baseEntry(mission: 'su'));
+      expect(e.missionType, MissionType.su);
     });
 
     test("unknown/future missionType:'water' => none WITHOUT throwing", () {

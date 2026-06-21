@@ -31,6 +31,14 @@ void main() {
 
     test('a time already passed today rolls to tomorrow', () {
       final now = DateTime.now();
+      // In the 00:00–00:59 window "1 hour ago" wraps to the PREVIOUS calendar
+      // day (a 23:xx time that is still in the future today), so there is no
+      // earlier-today time to exercise the roll-to-tomorrow invariant. Skip it
+      // rather than assert a false expectation (deterministic midnight-edge bug).
+      if (now.hour == 0) {
+        markTestSkipped('roll-to-tomorrow not exercisable in the 00:xx window');
+        return;
+      }
       final past = now.subtract(const Duration(hours: 1));
       final result = calculateAlarmDateTime(
         TimeOfDay(hour: past.hour, minute: past.minute),

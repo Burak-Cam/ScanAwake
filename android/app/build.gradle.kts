@@ -38,7 +38,10 @@ android {
         applicationId = "com.burakcam.uyan"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // minSdk 26: tflite_flutter 0.12.1 floor (MIS-04 Phase 7); drops <Android 8.0
+        // — Redmi Note 9S Android 11 unaffected. Set explicitly because the inherited
+        // flutter.minSdkVersion (24) is below the TFLite native-lib floor.
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
