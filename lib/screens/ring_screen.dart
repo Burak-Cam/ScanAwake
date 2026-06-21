@@ -257,60 +257,8 @@ class _RingScreenState extends State<RingScreen> {
     final prefs = PrefsService(await SharedPreferences.getInstance());
     await prefs.setRinging(false);
 
-    String today = DateTime.now().toString().split(' ')[0];
-    String? lastScan = prefs.lastScanDate;
-    int currentStreak = prefs.userStreak;
-    int currentTokens = prefs.snoozeTokens;
-
-    // FIX-04 / D-02,D-03,D-04: a day counts only for a REAL wake alarm not yet
-    // counted today. Test and snooze re-arms never earn streak; a second scan
-    // the same day is neutral (streakEligible folds in the lastScan != today
-    // guard). Snooze stays streak-neutral here AND on its re-arm path.
-    if (streakEligible(widget.alarmKind, lastScan, today)) {
-        currentStreak++;
-        await prefs.setUserStreak(currentStreak);
-        await prefs.setLastScanDate(today);
-
-        bool tokenEarned = false;
-        if (currentStreak % 3 == 0 && currentTokens < 3) {
-           currentTokens++;
-           await prefs.setSnoozeTokens(currentTokens);
-           tokenEarned = true;
-        }
-
-        if(mounted) {
-          String msg = "🔥 $currentStreak ${AppStrings.get('streak_day', widget.language)}";
-          if (tokenEarned) {
-             msg += "\n🎁 +1 ${AppStrings.get('token_name', widget.language)}!";
-          }
-          if (currentStreak % 7 == 0) {
-             msg += "\n\n🎉 ${AppStrings.get('weekly_msg', widget.language)} 🎉";
-          }
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                "$msg\n\n${AppStrings.get('morning_msg', widget.language)} \n$randomFact",
-                textAlign: TextAlign.center,
-              ),
-              duration: const Duration(seconds: 8),
-              backgroundColor: tokenEarned ? Colors.blueAccent : Colors.green,
-            ),
-          );
-        }
-    } else {
-       if(mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                "${AppStrings.get('morning_msg', widget.language)}\n\n$randomFact",
-                textAlign: TextAlign.center
-              ),
-              backgroundColor: Colors.green
-            ),
-          );
-       }
-    }
+    // Single-source award (shared with the mission tail via _awardStreakAndToken).
+    await _awardStreakAndToken(prefs);
 
     await Future.delayed(const Duration(seconds: 2));
 
@@ -424,37 +372,27 @@ class _RingScreenState extends State<RingScreen> {
         Timer.periodic(const Duration(milliseconds: 1600), (_) => buzz());
   }
 
-  // ENG-02 / Pattern 3: the mission-success callback handed to the Mission. This
-  // is the ONLY place a mission alarm clears is_ringing and the ONLY place its
-  // streak is awarded (DUPLICATED from the none-path v1 tail — Pitfall 3: the
-  // streak block must NOT live on any path a mission alarm reaches at scan
-  // time). Returns the existing RingResult.success (NO new variant): HomeScreen
-  // re-arms (FIX-01) and reloads prefs unchanged.
-  bool _missionDone = false;
-  Future<void> _onMissionSuccess() async {
-    if (_missionDone) return;
-    _missionDone = true;
-
-    _missionVibrationTimer?.cancel(); // SC-4: stop the su-mission vibration.
-    try {
-      Vibration.cancel();
-    } catch (_) {}
-    await _softPlayer.stop();
-    HapticFeedback.heavyImpact();
-
-    final prefs = PrefsService(await SharedPreferences.getInstance());
-    // Cleared HERE — the sole is_ringing clear on the mission path (D-15).
-    await prefs.setRinging(false);
-
-    String today = DateTime.now().toString().split(' ')[0];
-    String? lastScan = prefs.lastScanDate;
+  // Pitfall 3 / single-source award: the streak+token award + morning snackbar,
+  // called from BOTH dismiss tails (none-mission _onScanSuccess AND mission
+  // _onMissionSuccess) so the rule lives in exactly ONE place — a change to the
+  // award math can no longer drift between the two paths. Behavior is identical
+  // to the two former inline blocks, with the streak value now run through
+  // nextStreak (1-day grace). The caller has already cleared is_ringing for its
+  // own path; this method only touches streak/token/lastScan + the snackbar.
+  Future<void> _awardStreakAndToken(PrefsService prefs) async {
+    final String today = DateTime.now().toString().split(' ')[0];
+    final String? lastScan = prefs.lastScanDate;
     int currentStreak = prefs.userStreak;
     int currentTokens = prefs.snoozeTokens;
 
-    // FIX-04: SAME streakEligible gate as the v1 tail; widget.alarmKind is
-    // already carried from the payload.
+    // FIX-04 / D-02,D-03,D-04: a day counts only for a REAL wake alarm not yet
+    // counted today. Test and snooze re-arms never earn streak; a second scan
+    // the same day is neutral. Snooze stays streak-neutral here AND on re-arm.
     if (streakEligible(widget.alarmKind, lastScan, today)) {
-        currentStreak++;
+        // STREAK-GRACE: continue on <=1 missed day, reset to 1 on >=2 missed
+        // days (a real streak decays on inactivity; tokens are NOT wiped here —
+        // only a genuine cheat does that).
+        currentStreak = nextStreak(currentStreak, lastScan, today);
         await prefs.setUserStreak(currentStreak);
         await prefs.setLastScanDate(today);
 
@@ -498,6 +436,34 @@ class _RingScreenState extends State<RingScreen> {
           );
        }
     }
+  }
+
+  // ENG-02 / Pattern 3: the mission-success callback handed to the Mission. This
+  // is the ONLY place a mission alarm clears is_ringing and the ONLY place its
+  // streak is awarded (DUPLICATED from the none-path v1 tail — Pitfall 3: the
+  // streak block must NOT live on any path a mission alarm reaches at scan
+  // time). Returns the existing RingResult.success (NO new variant): HomeScreen
+  // re-arms (FIX-01) and reloads prefs unchanged.
+  bool _missionDone = false;
+  Future<void> _onMissionSuccess() async {
+    if (_missionDone) return;
+    _missionDone = true;
+
+    _missionVibrationTimer?.cancel(); // SC-4: stop the su-mission vibration.
+    try {
+      Vibration.cancel();
+    } catch (_) {}
+    await _softPlayer.stop();
+    HapticFeedback.heavyImpact();
+
+    final prefs = PrefsService(await SharedPreferences.getInstance());
+    // Cleared HERE — the sole is_ringing clear on the mission path (D-15).
+    await prefs.setRinging(false);
+
+    // Single-source award (shared with the none-mission tail). Pitfall 3: this
+    // is the ONLY place a mission alarm's streak is awarded (at mission success,
+    // never at barcode scan).
+    await _awardStreakAndToken(prefs);
 
     if (mounted) {
       Navigator.pop(context, RingResult.success);
