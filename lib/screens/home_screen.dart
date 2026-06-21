@@ -16,6 +16,7 @@ import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
+import '../models/mission_style.dart';
 import '../services/alarm_service.dart';
 import '../services/prefs_service.dart';
 import '../services/streak_service.dart';
@@ -881,22 +882,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   // MISSION MENU (D-09): verbatim mirror of the repeat-menu
                   // ListTile + showModalBottomSheet pattern above.
                   ListTile(
-                    leading: const Icon(Icons.flag),
-                    title: Text(AppStrings.get('mission_menu_title', currentLang)),
-                    subtitle: Text(
-                      switch (tempMissionType) {
-                        MissionType.lumen =>
-                          AppStrings.get('mission_lumen_name', currentLang),
-                        MissionType.renk =>
-                          AppStrings.get('mission_color_name', currentLang),
-                        MissionType.nesne =>
-                          AppStrings.get('mission_object_name', currentLang),
-                        MissionType.su =>
-                          AppStrings.get('mission_water_name', currentLang),
-                        MissionType.none =>
-                          AppStrings.get('mission_none', currentLang),
-                      },
+                    // Selected-mission row: the leading icon reflects the chosen
+                    // mission (colored) so the same color language as the alarm
+                    // list applies here. The subtitle reuses MissionStyle.displayName.
+                    leading: Icon(
+                      tempMissionType == MissionType.none ? Icons.flag : tempMissionType.icon,
+                      color: tempMissionType == MissionType.none ? null : tempMissionType.accentColor,
                     ),
+                    title: Text(AppStrings.get('mission_menu_title', currentLang)),
+                    subtitle: Text(tempMissionType.displayName(currentLang)),
                     onTap: () async {
                       await showModalBottomSheet(
                         context: context,
@@ -914,7 +908,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               ListTile(
-                                leading: const Icon(Icons.block),
+                                leading: Icon(MissionType.none.icon),
                                 title: Text(AppStrings.get('mission_none', currentLang)),
                                 onTap: () {
                                   setModalState(() => tempMissionType = MissionType.none);
@@ -922,7 +916,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 },
                               ),
                               ListTile(
-                                leading: const Icon(Icons.wb_sunny),
+                                leading: Icon(MissionType.lumen.icon, color: MissionType.lumen.accentColor),
                                 title: Text(AppStrings.get('mission_lumen_name', currentLang)),
                                 onTap: () {
                                   setModalState(() => tempMissionType = MissionType.lumen);
@@ -931,7 +925,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               // MIS-02: the Renk Bulma (Find Color) mission row.
                               ListTile(
-                                leading: const Icon(Icons.palette),
+                                leading: Icon(MissionType.renk.icon, color: MissionType.renk.accentColor),
                                 title: Text(AppStrings.get('mission_color_name', currentLang)),
                                 onTap: () {
                                   setModalState(() => tempMissionType = MissionType.renk);
@@ -940,7 +934,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               // MIS-03: the Nesne Bulma (Find Object) mission row.
                               ListTile(
-                                leading: const Icon(Icons.category),
+                                leading: Icon(MissionType.nesne.icon, color: MissionType.nesne.accentColor),
                                 title: Text(AppStrings.get('mission_object_name', currentLang)),
                                 onTap: () {
                                   setModalState(() => tempMissionType = MissionType.nesne);
@@ -953,7 +947,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               // path, so a plain request without FGBGEvents wrapping
                               // is correct — unlike the camera ring-path request).
                               ListTile(
-                                leading: const Icon(Icons.water_drop),
+                                leading: Icon(MissionType.su.icon, color: MissionType.su.accentColor),
                                 title: Text(AppStrings.get('mission_water_name', currentLang)),
                                 onTap: () async {
                                   setModalState(() => tempMissionType = MissionType.su);
@@ -1372,7 +1366,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         decoration: BoxDecoration(
                           color: isDark ? Colors.grey[900] : Colors.white,
                           borderRadius: BorderRadius.circular(15),
-                          border: Border.all(color: alarm.isActive ? Colors.red.withValues(alpha: 0.5) : Colors.transparent),
+                          // Per-mission indicator: an active alarm's border is
+                          // tinted to its mission accent color. No-mission alarms
+                          // keep the v1 red border (no regression).
+                          border: Border.all(
+                            color: !alarm.isActive
+                                ? Colors.transparent
+                                : alarm.missionType == MissionType.none
+                                    ? Colors.red.withValues(alpha: 0.5)
+                                    : alarm.missionType.accentColor.withValues(alpha: 0.7),
+                            width: alarm.isActive && alarm.missionType != MissionType.none ? 1.5 : 1.0,
+                          ),
                           boxShadow: isDark ? [] : [BoxShadow(color: Colors.grey.withValues(alpha: 0.2), blurRadius: 5, spreadRadius: 1)],
                         ),
                         child: ListTile(
@@ -1403,10 +1407,27 @@ class _HomeScreenState extends State<HomeScreen> {
                                 )
                             ],
                           ),
-                          subtitle: Text(
-                              alarm.isActive ? daysText : AppStrings.get('inactive', currentLang), 
-                              style: const TextStyle(color: Colors.grey)
-                          ),
+                          // Per-mission indicator: when active with a mission, the
+                          // subtitle leads with the mission's colored icon + name,
+                          // then the repeat days. No-mission / inactive alarms keep
+                          // the plain v1 grey subtitle (no regression).
+                          subtitle: !alarm.isActive
+                              ? Text(AppStrings.get('inactive', currentLang), style: const TextStyle(color: Colors.grey))
+                              : alarm.missionType == MissionType.none
+                                  ? Text(daysText, style: const TextStyle(color: Colors.grey))
+                                  : Row(
+                                      children: [
+                                        Icon(alarm.missionType.icon, size: 15, color: alarm.missionType.accentColor),
+                                        const SizedBox(width: 5),
+                                        Expanded(
+                                          child: Text(
+                                            "${alarm.missionType.displayName(currentLang)} · $daysText",
+                                            style: TextStyle(color: alarm.missionType.accentColor, fontWeight: FontWeight.w500),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
