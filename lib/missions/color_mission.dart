@@ -288,7 +288,7 @@ class _ColorViewState extends State<_ColorView>
         _lastTick == null ? 0 : now.difference(_lastTick!).inMilliseconds;
     _lastTick = now;
 
-    // Plan 01 pure helpers: add-on-match / reset-on-miss, complete at hold.
+    // Plan 01 pure helpers: add-on-match / leaky-decay-on-miss (D-09), complete at hold.
     _heldMs = accumulateColorHold(
       _heldMs,
       h,

@@ -189,7 +189,7 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
         _lastTick == null ? 0 : now.difference(_lastTick!).inMilliseconds;
     _lastTick = now;
 
-    // Plan 01 pure helpers: add-on-above / reset-on-drop, complete at hold.
+    // Plan 01 pure helpers: add-on-above / leaky-decay-on-drop (D-09), complete at hold.
     _heldMs = accumulateHold(_heldMs, avg, dtMs);
     final progress = (_heldMs / kLumenHoldMs).clamp(0.0, 1.0);
 
@@ -308,8 +308,8 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 12),
             // D-04: nudge — "DAHA PARLAK!" below threshold, "...SABIT TUT!" near
-            // completion. Progress resets visibly on a drop (D-02) because
-            // _progress is driven straight off accumulateHold.
+            // completion. Progress decays visibly on a drop (D-09 leaky decay)
+            // because _progress is driven straight off accumulateHold.
             Text(
               AppStrings.get(
                 nearDone ? 'mission_lumen_hold' : 'mission_lumen_brighter',

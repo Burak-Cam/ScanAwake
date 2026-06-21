@@ -2,12 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:no_snooze/constants/app_constants.dart';
 import 'package:no_snooze/l10n/app_strings.dart';
 
-// MIS-01 / D-02 characterization: the pure sustained-hold helpers backing the
-// Lümen mission. Hold is SUSTAINED, not cumulative — any below-threshold frame
-// resets progress to 0. Also pins the calibratable constants and asserts TR/EN
-// parity for every new mission string.
+// MIS-01 / D-02 / D-09 characterization: the pure sustained-hold helpers backing
+// the Lümen mission. Hold is SUSTAINED + LEAKY — a matched tick adds dtMs, a
+// below-threshold frame DECAYS by half a tick (clamped at 0), NOT a hard reset
+// (the SC-4 water finding generalized to all progress missions). Also pins the
+// calibratable constants and asserts TR/EN parity for every new mission string.
 void main() {
-  group('accumulateHold (D-02 sustained, not cumulative)', () {
+  group('accumulateHold (D-02/D-09 sustained with leaky decay)', () {
     test('adds dtMs when avgY >= kLumenThreshold', () {
       expect(accumulateHold(0, kLumenThreshold, 100), 100);
       expect(accumulateHold(500, kLumenThreshold + 50, 100), 600);
@@ -17,9 +18,21 @@ void main() {
       expect(accumulateHold(200, kLumenThreshold, 50), 250);
     });
 
-    test('resets to 0 when avgY < kLumenThreshold (any drop)', () {
-      expect(accumulateHold(2000, kLumenThreshold - 1, 100), 0);
-      expect(accumulateHold(2400, 0, 100), 0);
+    test('a below-threshold tick DECAYS by half a tick (NOT a hard reset)', () {
+      // D-09: a transient dark frame must not wipe near-complete progress.
+      expect(accumulateHold(2000, kLumenThreshold - 1, 500), 1750); // 2000 - 250
+    });
+
+    test('decay is slower than fill (a miss removes less than a match adds)', () {
+      const held = 1000, dt = 600;
+      final lostOnMiss = held - accumulateHold(held, kLumenThreshold - 1, dt);
+      final gainedOnMatch = accumulateHold(held, kLumenThreshold + 10, dt) - held;
+      expect(lostOnMiss < gainedOnMatch, isTrue);
+    });
+
+    test('a miss clamps at 0 (never negative)', () {
+      expect(accumulateHold(100, kLumenThreshold - 1, 500), 0); // 100 - 250 -> 0
+      expect(accumulateHold(0, 0, 100), 0);
     });
   });
 
@@ -45,13 +58,13 @@ void main() {
       expect(held >= kLumenHoldMs, isTrue);
     });
 
-    test('a below-threshold tick mid-sequence resets progress to 0', () {
+    test('a below-threshold tick mid-sequence decays (not hard reset)', () {
       int held = 0;
       held = accumulateHold(held, kLumenThreshold + 10, 1000); // 1000
       held = accumulateHold(held, kLumenThreshold + 10, 1000); // 2000
       expect(held, 2000);
-      held = accumulateHold(held, kLumenThreshold - 50, 100); // drop => reset
-      expect(held, 0);
+      held = accumulateHold(held, kLumenThreshold - 50, 500); // drop => 2000-250
+      expect(held, 1750);
       expect(lumenComplete(held), isFalse);
     });
   });

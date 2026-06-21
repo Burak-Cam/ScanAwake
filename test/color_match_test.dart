@@ -3,13 +3,14 @@ import 'package:no_snooze/constants/app_constants.dart';
 import 'package:no_snooze/l10n/app_strings.dart';
 import 'package:no_snooze/models/enums.dart';
 
-// MIS-02 characterization: the pure color-match helpers backing the Renk Bulma
-// mission. hsvMatches gates on hue distance (circular, 0/360 wraparound) AND
-// sat/val floors; accumulateColorHold is SUSTAINED, not cumulative — any
-// non-matching frame resets progress to 0. Also pins the [ASSUMED] calibration
-// constants (one-line change under SC-4), proves the defensive MissionType
-// decode for the new `renk` value, and asserts TR/EN parity for every new
-// color/mission string.
+// MIS-02 / D-09 characterization: the pure color-match helpers backing the Renk
+// Bulma mission. hsvMatches gates on hue distance (circular, 0/360 wraparound)
+// AND sat/val floors; accumulateColorHold is SUSTAINED + LEAKY — a matching frame
+// adds dtMs, a non-matching frame DECAYS by half a tick (clamped at 0), NOT a
+// hard reset (the SC-4 water finding generalized to all progress missions). Also
+// pins the [ASSUMED] calibration constants (one-line change under SC-4), proves
+// the defensive MissionType decode for the new `renk` value, and asserts TR/EN
+// parity for every new color/mission string.
 void main() {
   group('constant values pinned (calibration regression guard)', () {
     test('kColorHueTolerance is 26 (±26° hue window, SC-4 calibrated)', () {
@@ -55,15 +56,25 @@ void main() {
     });
   });
 
-  group('accumulateColorHold (D-02 analog: sustained, not cumulative)', () {
+  group('accumulateColorHold (D-02/D-09 analog: sustained with leaky decay)', () {
     test('matching frame adds dtMs', () {
       expect(accumulateColorHold(900, 5, 0.9, 0.9, 0, 200), 1100);
     });
-    test('non-matching hue RESETS to 0 (not cumulative)', () {
-      expect(accumulateColorHold(900, 200, 0.9, 0.9, 0, 200), 0);
+    test('non-matching hue DECAYS by half a tick (NOT a hard reset)', () {
+      // D-09: a transient wrong-hue frame must not wipe near-complete progress.
+      expect(accumulateColorHold(900, 200, 0.9, 0.9, 0, 200), 800); // 900 - 100
     });
-    test('low-sat frame RESETS to 0', () {
-      expect(accumulateColorHold(900, 5, 0.1, 0.9, 0, 200), 0);
+    test('low-sat frame also decays (not hard reset)', () {
+      expect(accumulateColorHold(900, 5, 0.1, 0.9, 0, 200), 800); // 900 - 100
+    });
+    test('decay is slower than fill (a miss removes less than a match adds)', () {
+      const held = 600, dt = 400;
+      final lostOnMiss = held - accumulateColorHold(held, 200, 0.9, 0.9, 0, dt);
+      final gainedOnMatch = accumulateColorHold(held, 5, 0.9, 0.9, 0, dt) - held;
+      expect(lostOnMiss < gainedOnMatch, isTrue);
+    });
+    test('a miss clamps at 0 (never negative)', () {
+      expect(accumulateColorHold(50, 200, 0.9, 0.9, 0, 200), 0); // 50 - 100 -> 0
     });
   });
 

@@ -3,13 +3,15 @@ import 'package:no_snooze/constants/app_constants.dart';
 import 'package:no_snooze/l10n/app_strings.dart';
 import 'package:no_snooze/models/enums.dart';
 
-// MIS-03 characterization: the pure, ML-Kit-FREE object-match helpers backing the
-// Nesne Tanıma (object find) mission. hasMatch gates on case-insensitive label
-// membership in the accepted set AND a confidence floor; accumulateObjectHold is
-// SUSTAINED, not cumulative — a single non-matching throttled tick resets progress
-// to 0. Also pins the [ASSUMED] calibration constants (one-line change under SC-4),
-// proves the defensive MissionType decode for the new `nesne` value (dismiss must
-// never crash — Pitfall 5), and asserts TR/EN parity for every new object/mission
+// MIS-03 / D-09 characterization: the pure, ML-Kit-FREE object-match helpers
+// backing the Nesne Tanıma (object find) mission. hasMatch gates on
+// case-insensitive label membership in the accepted set AND a confidence floor;
+// accumulateObjectHold is SUSTAINED + LEAKY — a matched tick adds dtMs, a
+// non-matching throttled tick DECAYS by half a tick (clamped at 0), NOT a hard
+// reset (the SC-4 water finding generalized to all progress missions). Also pins
+// the [ASSUMED] calibration constants (one-line change under SC-4), proves the
+// defensive MissionType decode for the new `nesne` value (dismiss must never
+// crash — Pitfall 5), and asserts TR/EN parity for every new object/mission
 // string.
 void main() {
   group('constant values pinned (calibration regression guard)', () {
@@ -65,12 +67,22 @@ void main() {
     });
   });
 
-  group('accumulateObjectHold (D-02 analog: sustained, not cumulative)', () {
+  group('accumulateObjectHold (D-02/D-09 analog: sustained with leaky decay)', () {
     test('matched tick adds dtMs', () {
       expect(accumulateObjectHold(800, true, 200), 1000);
     });
-    test('non-matching tick RESETS to 0 (not cumulative)', () {
-      expect(accumulateObjectHold(800, false, 200), 0);
+    test('non-matching tick DECAYS by half a tick (NOT a hard reset)', () {
+      // D-09: a transient misclassification must not wipe near-complete progress.
+      expect(accumulateObjectHold(800, false, 200), 700); // 800 - 100
+    });
+    test('decay is slower than fill (a miss removes less than a match adds)', () {
+      const held = 600, dt = 400;
+      final lostOnMiss = held - accumulateObjectHold(held, false, dt);
+      final gainedOnMatch = accumulateObjectHold(held, true, dt) - held;
+      expect(lostOnMiss < gainedOnMatch, isTrue);
+    });
+    test('a miss clamps at 0 (never negative)', () {
+      expect(accumulateObjectHold(50, false, 200), 0); // 50 - 100 -> clamp 0
     });
   });
 

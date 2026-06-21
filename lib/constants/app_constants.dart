@@ -23,11 +23,15 @@ const double kLumenThreshold = 140;
 /// in Plan 03. Pinned by lumen_hold_test.dart.
 const int kLumenHoldMs = 2500;
 
-/// MIS-01 / D-02: pure sustained-hold accumulator. Adds [dtMs] to [heldMs] when
-/// the frame's [avgY] is at/above [kLumenThreshold]; otherwise RESETS to 0 (a
-/// single below-threshold frame wipes progress — sustained, not cumulative).
-int accumulateHold(int heldMs, double avgY, int dtMs) =>
-    avgY >= kLumenThreshold ? heldMs + dtMs : 0;
+/// MIS-01 / D-02 / D-09: pure SUSTAINED + LEAKY hold accumulator. Adds [dtMs] to
+/// [heldMs] when the frame's [avgY] is at/above [kLumenThreshold]; otherwise
+/// DECAYS by half a tick ([dtMs] ~/ 2), clamped to [0, kLumenHoldMs] — a single
+/// below-threshold frame no longer wipes near-complete progress. Mirrors
+/// [accumulateWaterHold]: the SC-4 water finding (a transient miss must not
+/// hard-reset the bar) generalized to all progress-bar missions.
+int accumulateHold(int heldMs, double avgY, int dtMs) => avgY >= kLumenThreshold
+    ? heldMs + dtMs
+    : (heldMs - (dtMs ~/ 2)).clamp(0, kLumenHoldMs);
 
 /// MIS-01 / D-02: the Lümen mission is complete once accumulated [heldMs]
 /// reaches [kLumenHoldMs].
@@ -85,12 +89,16 @@ bool hsvMatches(double h, double s, double v, double targetHue) =>
     v >= kColorMinVal &&
     hueDistance(h, targetHue) <= kColorHueTolerance;
 
-/// MIS-02 / D-02 analog: pure sustained-hold accumulator (NOT cumulative). Adds
-/// [dtMs] to [heldMs] while the frame matches [targetHue]; a single
-/// non-matching frame RESETS to 0 (mirrors [accumulateHold]).
+/// MIS-02 / D-02 / D-09 analog: pure SUSTAINED + LEAKY hold accumulator. Adds
+/// [dtMs] to [heldMs] while the frame matches [targetHue]; otherwise DECAYS by
+/// half a tick ([dtMs] ~/ 2), clamped to [0, kColorHoldMs] — a single
+/// non-matching frame no longer wipes near-complete progress (mirrors
+/// [accumulateHold] / [accumulateWaterHold]).
 int accumulateColorHold(
         int heldMs, double h, double s, double v, double targetHue, int dtMs) =>
-    hsvMatches(h, s, v, targetHue) ? heldMs + dtMs : 0;
+    hsvMatches(h, s, v, targetHue)
+        ? heldMs + dtMs
+        : (heldMs - (dtMs ~/ 2)).clamp(0, kColorHoldMs);
 
 /// MIS-02: the color mission is complete once accumulated [heldMs] reaches
 /// [kColorHoldMs].
@@ -168,11 +176,14 @@ bool hasMatch(List<(String label, double confidence)> labels,
   return sum >= floor;
 }
 
-/// MIS-03 / D-02 analog: pure sustained-hold accumulator (NOT cumulative). Adds
-/// [dtMs] to [heldMs] while [matched]; a single non-matching throttled tick
-/// RESETS to 0 (mirrors [accumulateHold] / [accumulateColorHold]).
-int accumulateObjectHold(int heldMs, bool matched, int dtMs) =>
-    matched ? heldMs + dtMs : 0;
+/// MIS-03 / D-02 / D-09 analog: pure SUSTAINED + LEAKY hold accumulator. Adds
+/// [dtMs] to [heldMs] while [matched]; otherwise DECAYS by half a tick
+/// ([dtMs] ~/ 2), clamped to [0, kObjectHoldMs] — a single non-matching
+/// throttled tick no longer wipes near-complete progress (mirrors
+/// [accumulateHold] / [accumulateColorHold] / [accumulateWaterHold]).
+int accumulateObjectHold(int heldMs, bool matched, int dtMs) => matched
+    ? heldMs + dtMs
+    : (heldMs - (dtMs ~/ 2)).clamp(0, kObjectHoldMs);
 
 /// MIS-03: the object mission is complete once accumulated [heldMs] reaches
 /// [kObjectHoldMs].
