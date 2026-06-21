@@ -134,7 +134,7 @@ class AppStrings {
     // MIS-04 (Phase 7): Su Sesi / water-sound mission. Single fixed target
     // (D-10) — no per-target object_<key> equivalents. TR/EN parity pinned by
     // water_match_test.dart.
-    'mission_water_title': {'tr': '2. AŞAMA: SUYU BUL', 'en': 'STAGE 2: FIND THE WATER'},
+    'mission_water_title': {'tr': '2. AŞAMA: SU SESİNİ BUL', 'en': 'STAGE 2: FIND THE WATER SOUND'},
     'mission_water_guide': {
       'tr': 'Musluğu/duşu aç, telefonu sese yaklaştır',
       'en': 'Turn on the tap/shower, bring the phone close to the sound'
@@ -143,7 +143,7 @@ class AppStrings {
       'tr': 'NEREDEYSE TAMAM, DEVAM ET!',
       'en': 'ALMOST THERE, KEEP GOING!'
     },
-    'mission_water_name': {'tr': 'Suyu Bul', 'en': 'Find Water'},
+    'mission_water_name': {'tr': 'Su Sesini Bul', 'en': 'Find Water Sound'},
     'mission_water_detected': {'tr': 'Su algılandı:', 'en': 'Water detected:'},
     'mission_water_listening': {'tr': 'Dinleniyor...', 'en': 'Listening...'},
     // D-08: in-task microphone permission gate (alarm keeps ringing; no bypass).
