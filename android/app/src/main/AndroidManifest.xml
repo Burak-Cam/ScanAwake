@@ -1,6 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-
     <!-- SECURITY (Play hardening 2026-06-21): strip permissions that transitive ML
          dependencies merge into the release manifest. This app is fully offline and
          uses NO telephony/push. google_mlkit_image_labeling pulls firebase-iid +
@@ -8,34 +7,53 @@
          tflite GPU lib (targetSdk<4) IMPLIES READ_PHONE_STATE / WRITE_EXTERNAL_STORAGE.
          ML Kit uses a BUNDLED LocalLabelerOptions model — it does not need the network,
          so removing INTERNET is safe (device-verified on the Nesne mission). -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
-    <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" tools:node="remove" />
-
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove"/>
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove"/>
+    <uses-permission
+        android:name="android.permission.READ_PHONE_STATE"
+        tools:node="remove"/>
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:node="remove"/>
+    <uses-permission
+        android:name="com.google.android.c2dm.permission.RECEIVE"
+        tools:node="remove"/>
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission
+        android:name="android.permission.USE_EXACT_ALARM"/>
+    <uses-permission
+        android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission
+        android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission
+        android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission
+        android:name="android.permission.VIBRATE"/>
+    <uses-permission
+        android:name="android.permission.CAMERA"/>
     <!-- MIS-04 (Phase 7): the microphone is used ONLY while a "Su Sesi" alarm task
          is active, to detect running-water sound on-device (offline YAMNet). Audio
          stays in an in-memory buffer; it is never recorded to disk or sent over the
          network, and capture ends when the mission ends. -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission
+        android:name="android.permission.RECORD_AUDIO"/>
     <!-- MIS-04 (Phase 7): targetSdk 36 (>= 34) requires an explicit FGS-microphone
          permission + foregroundServiceType when mic capture happens while a
          foreground service runs (the alarm's mediaPlayback NotificationService). -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <!-- SEC-01: FLASHLIGHT removed — the torch is driven through mobile_scanner's
          camera2 path (CameraManager), which needs only CAMERA, not this legacy
          normal-level permission. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"/>
     <application
         android:label="ScanAwake"
         android:name="${applicationName}"
@@ -44,13 +62,11 @@
         android:usesCleartextTraffic="false"
         android:showWhenLocked="true"
         android:turnScreenOn="true">
-
         <!-- SECURITY: drop the unused Firebase push receiver dragged in by ML Kit
              (firebase-iid). No push messaging is used. -->
         <receiver
             android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver"
-            tools:node="remove" />
-        
+            tools:node="remove"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -64,38 +80,34 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true">
             <meta-data
-              android:name="io.flutter.embedding.android.NormalTheme"
-              android:resource="@style/NormalTheme"
-              />
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
         <meta-data
             android:name="flutterEmbedding"
-            android:value="2" />
-
+            android:value="2"/>
         <service
             android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmService"
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false"
-            android:stopWithTask="false" /> 
-            
+            android:stopWithTask="false"/>
         <service
             android:name="com.gdelataillade.alarm.services.NotificationService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback|microphone"
-            android:stopWithTask="false" />
-            
-        </application>
-    
+            android:stopWithTask="false"/>
+    </application>
     <queries>
         <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
+            <action
+                android:name="android.intent.action.PROCESS_TEXT"/>
+            <data
+                android:mimeType="text/plain"/>
         </intent>
     </queries>
 </manifest>

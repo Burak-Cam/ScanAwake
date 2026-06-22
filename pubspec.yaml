@@ -61,6 +61,9 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   mocktail: ^1.0.4
   flutter_launcher_icons: ^0.14.4
+  # BRAND-IN-APP: build-time codegen for the native splash (brand logo on the
+  # dark brand background). Dev-only, not shipped in the APK.
+  flutter_native_splash: ^2.4.0
 
 # App launcher icon (ScanAwake brand). Source art lives in design/export/.
 # adaptive_icon_foreground_inset pushes the corner-bracket frame into the
@@ -75,6 +78,15 @@ flutter_launcher_icons:
   adaptive_icon_background: "#16130F"
   adaptive_icon_foreground: "design/export/icon-1024.png"
   adaptive_icon_foreground_inset: 20
+
+# BRAND-IN-APP: native splash — brand logo on the dark brand background (#16130F).
+# Android 12+ handles splashes separately, so the android_12 block mirrors it.
+flutter_native_splash:
+  color: "#16130F"
+  image: design/export/icon-1024.png
+  android_12:
+    color: "#16130F"
+    image: design/export/icon-1024.png
 
 flutter:
   uses-material-design: true
