@@ -2,7 +2,7 @@ name: no_snooze
 description: "Barcode Alarm App - No Snooze Allowed!"
 publish_to: 'none'
 
-version: 2.0.1+2
+version: 2.1.0+3
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
