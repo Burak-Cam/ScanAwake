@@ -4,8 +4,10 @@
 # the values for YOUR release keystore. The real `key.properties` file, along with
 # any *.jks / *.keystore files, is gitignored and MUST NEVER be committed.
 #
-# When `key.properties` is absent, the release build falls back to the debug key,
-# so day-to-day `flutter run --release` keeps working without a real keystore.
+# When `key.properties` is absent, the RELEASE build HARD-FAILS with a clear error
+# (no debug-key fallback) so a debug-signed AAB/APK can never be produced and
+# uploaded to Play. debug/profile builds (`flutter run`) are unaffected and keep
+# working without a real keystore.
 #
 # storeFile may be an absolute path or a path relative to uyan/android/.
 

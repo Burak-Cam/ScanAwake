@@ -1,3 +1,19 @@
+import 'package:flutter/material.dart';
+
+/// BRAND-IN-APP: locked ScanAwake cream (krem). Source: design/export/feature.html
+/// (`.cr { color:#F2EBDB }`) — wordmark "Scan" on dark, viewfinder center dot.
+const Color kBrandCream = Color(0xFFF2EBDB);
+
+/// BRAND-IN-APP: locked ScanAwake red. Source: design/export/feature.html
+/// (`.red { color:#E83A2E }`, viewfinder brackets `stroke="#E83A2E"`) — always-red
+/// "Awake" wordmark span + viewfinder corner brackets.
+const Color kBrandRed = Color(0xFFE83A2E);
+
+/// BRAND-IN-APP: locked ScanAwake dark. Source: design/export/feature.html
+/// (`.feat { background:#16130F }`) — brand background + splash + light-theme
+/// "Scan" wordmark color.
+const Color kBrandDark = Color(0xFF16130F);
+
 /// FIX-04 / D-07: the camera/vibration restart cooldown after a RESTART
 /// dismiss. Safe-side 2.5s value (RLS-05) — pinned by cooldown_value_test.dart.
 const int kCameraRestartCooldownMs = 2500;

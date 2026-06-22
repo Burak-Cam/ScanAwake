@@ -21,6 +21,7 @@ import '../models/mission_style.dart';
 import '../services/alarm_service.dart';
 import '../services/prefs_service.dart';
 import '../services/streak_service.dart';
+import '../widgets/brand.dart';
 import 'ring_screen.dart';
 import 'scanner_screen.dart';
 
@@ -1273,8 +1274,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       key: _scaffoldKey, 
       appBar: AppBar(
-        title: const Text("ScanAwake", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2)),
-        centerTitle: true,
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ViewfinderMark(size: 20),
+            SizedBox(width: 8),
+            Flexible(child: ScanAwakeWordmark(fontSize: 20)),
+          ],
+        ),
+        centerTitle: false,
         leading: IconButton(
           icon: const Icon(Icons.menu),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(), 
@@ -1340,15 +1348,14 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.zero,
           children: [
             const DrawerHeader(
-              decoration: BoxDecoration(color: Colors.red),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.alarm_on, size: 50, color: Colors.white),
-                  SizedBox(height: 10),
-                  Text("ScanAwake", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                ],
+              decoration: BoxDecoration(
+                color: kBrandDark,
+                image: DecorationImage(
+                  image: AssetImage('design/export/feature-1024x500.png'),
+                  fit: BoxFit.contain,
+                ),
               ),
+              child: SizedBox.shrink(),
             ),
             ListTile(
               title: Text(AppStrings.get('app_version', currentLang), style: const TextStyle(color: Colors.grey, fontSize: 12)),

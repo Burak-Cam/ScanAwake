@@ -63,12 +63,19 @@ android {
 
     buildTypes {
         release {
-            // Uses the real release config when key.properties is present;
-            // falls back to the debug key so `flutter run --release` keeps working.
+            // D-04: release MUST be signed with the real upload key. Hard-fail
+            // (no debug fallback) when key.properties is absent so a debug-signed
+            // AAB/APK can never be produced and uploaded to Play.
+            // debug/profile builds are unaffected — they never enter this block.
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                throw GradleException(
+                    "release imzası için key.properties gerekli: " +
+                    "uyan/android/key.properties bulunamadı. key.properties.example " +
+                    "dosyasını kopyalayıp upload keystore bilgileriyle doldurun " +
+                    "(debug/profile build'leri etkilenmez)."
+                )
             }
         }
     }

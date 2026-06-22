@@ -15,6 +15,7 @@ import '../missions/object_mission.dart';
 import '../missions/water_mission.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
+import '../services/alarm_volume_controller.dart';
 import '../services/prefs_service.dart';
 import '../services/streak_service.dart';
 
@@ -95,6 +96,22 @@ class _RingScreenState extends State<RingScreen> {
   bool _missionActive = false;
   final AudioPlayer _softPlayer = AudioPlayer();
   Mission? _mission;
+
+  // ENG-01 (sov-02): the user's original alarm-stream volume, captured when the
+  // non-su mission boosts STREAM_ALARM to max. null = no boost happened (su
+  // mission, iOS, or a failed native call), so restore is a safe no-op.
+  int? _savedAlarmVolume;
+
+  // ENG-01 (sov-02): idempotent restore of the user's original alarm volume.
+  // Null-first so a double call (e.g. _onMissionSuccess then dispose) is a
+  // no-op. Fire-and-forget: the service call is best-effort/try-catch internally.
+  void _restoreAlarmVolumeIfNeeded() {
+    final v = _savedAlarmVolume;
+    if (v != null) {
+      _savedAlarmVolume = null;
+      restoreAlarmVolume(v);
+    }
+  }
 
   // FIX (lockscreen-mission-hidden): re-assert the lock-screen window flags after
   // Alarm.stop(). The alarm package turns setShowWhenLocked(false) the moment its
@@ -221,6 +238,9 @@ class _RingScreenState extends State<RingScreen> {
 
     setState(() => isLocked = true);
     await Alarm.stop(widget.alarmId);
+    // ENG-01 (sov-02): restore the user's alarm volume on the emergency-stop
+    // exit (idempotent; no-op if no boost happened).
+    _restoreAlarmVolumeIfNeeded();
     HapticFeedback.lightImpact();
     if (!mounted) return;
     // FIX-01: return RingResult.emergency (was an arg-less pop) so the dismiss
@@ -304,6 +324,31 @@ class _RingScreenState extends State<RingScreen> {
         // foreground alarm activity so the soft loop keeps playing (incl. under
         // lock — SC-4 device-verified in Task 2).
         await _softPlayer.setReleaseMode(ReleaseMode.loop);
+        if (!mounted) return;
+        // ENG-01 (sov-02): force the system STREAM_ALARM volume to max so the
+        // volume:0.5 soft loop is loud and INDEPENDENT of the user's alarm
+        // slider (the Stage-1 -> Stage-2 Alarm.stop drops the alarm package's
+        // volumeEnforced boost). Captures the original volume for restore on every
+        // exit path. su branch is NOT boosted (no audio; _savedAlarmVolume stays
+        // null -> restore no-op). Best-effort native call returns null on failure.
+        _savedAlarmVolume = await boostAlarmVolume();
+        if (!mounted) return;
+        // ENG-01 fix: route the soft loop through the Android ALARM stream so it
+        // is loud and independent of the phone's MEDIA volume slider (the default
+        // media/music usage made the mission audio effectively muted when the
+        // media slider was low). usageType.alarm + contentType.sonification +
+        // audioFocus.gain mirrors how the real Stage-1 alarm plays. iOS uses the
+        // default AudioContextIOS() (Android-priority; do not break the iOS build).
+        await _softPlayer.setAudioContext(
+          AudioContext(
+            android: AudioContextAndroid(
+              usageType: AndroidUsageType.alarm,
+              contentType: AndroidContentType.sonification,
+              audioFocus: AndroidAudioFocus.gain,
+            ),
+            iOS: AudioContextIOS(),
+          ),
+        );
         if (!mounted) return;
         await _softPlayer.play(
           source.isAsset ? AssetSource(source.value) : DeviceFileSource(source.value),
@@ -454,6 +499,9 @@ class _RingScreenState extends State<RingScreen> {
       Vibration.cancel();
     } catch (_) {}
     await _softPlayer.stop();
+    // ENG-01 (sov-02): restore the user's alarm volume on the success exit
+    // (idempotent; no-op if no boost happened, e.g. su mission).
+    _restoreAlarmVolumeIfNeeded();
     HapticFeedback.heavyImpact();
 
     final prefs = PrefsService(await SharedPreferences.getInstance());
@@ -479,6 +527,9 @@ class _RingScreenState extends State<RingScreen> {
       Vibration.cancel();
     } catch (_) {}
     controller?.dispose();
+    // ENG-01 (sov-02): restore the user's alarm volume as a teardown backstop
+    // (idempotent fire-and-forget; no-op if already restored or never boosted).
+    _restoreAlarmVolumeIfNeeded();
     // ENG-01: best-effort teardown of the Stage-2 soft loop.
     _softPlayer.stop();
     _softPlayer.dispose();
