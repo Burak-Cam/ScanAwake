@@ -305,6 +305,23 @@ class _RingScreenState extends State<RingScreen> {
         // lock — SC-4 device-verified in Task 2).
         await _softPlayer.setReleaseMode(ReleaseMode.loop);
         if (!mounted) return;
+        // ENG-01 fix: route the soft loop through the Android ALARM stream so it
+        // is loud and independent of the phone's MEDIA volume slider (the default
+        // media/music usage made the mission audio effectively muted when the
+        // media slider was low). usageType.alarm + contentType.sonification +
+        // audioFocus.gain mirrors how the real Stage-1 alarm plays. iOS uses the
+        // default AudioContextIOS() (Android-priority; do not break the iOS build).
+        await _softPlayer.setAudioContext(
+          AudioContext(
+            android: AudioContextAndroid(
+              usageType: AndroidUsageType.alarm,
+              contentType: AndroidContentType.sonification,
+              audioFocus: AndroidAudioFocus.gain,
+            ),
+            iOS: AudioContextIOS(),
+          ),
+        );
+        if (!mounted) return;
         await _softPlayer.play(
           source.isAsset ? AssetSource(source.value) : DeviceFileSource(source.value),
           volume: 0.5, // ENG-01: ducked-but-audible; never silenced.
