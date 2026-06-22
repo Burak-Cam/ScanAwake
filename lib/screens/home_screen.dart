@@ -1277,12 +1277,12 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ViewfinderMark(size: 22),
+            ViewfinderMark(size: 20),
             SizedBox(width: 8),
-            Flexible(child: ScanAwakeWordmark()),
+            Flexible(child: ScanAwakeWordmark(fontSize: 20)),
           ],
         ),
-        centerTitle: true,
+        centerTitle: false,
         leading: IconButton(
           icon: const Icon(Icons.menu),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(), 
@@ -1349,9 +1349,10 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const DrawerHeader(
               decoration: BoxDecoration(
+                color: kBrandDark,
                 image: DecorationImage(
                   image: AssetImage('design/export/feature-1024x500.png'),
-                  fit: BoxFit.cover,
+                  fit: BoxFit.contain,
                 ),
               ),
               child: SizedBox.shrink(),
