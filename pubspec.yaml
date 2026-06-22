@@ -60,6 +60,21 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
   mocktail: ^1.0.4
+  flutter_launcher_icons: ^0.14.4
+
+# App launcher icon (ScanAwake brand). Source art lives in design/export/.
+# adaptive_icon_foreground_inset pushes the corner-bracket frame into the
+# adaptive safe zone so it survives Android's circular/squircle masks; the
+# adaptive background matches the icon's dark so the inset margin is seamless.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "design/export/icon-1024.png"
+  min_sdk_android: 26
+  remove_alpha_ios: true
+  adaptive_icon_background: "#16130F"
+  adaptive_icon_foreground: "design/export/icon-1024.png"
+  adaptive_icon_foreground_inset: 20
 
 flutter:
   uses-material-design: true
