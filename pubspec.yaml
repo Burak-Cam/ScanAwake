@@ -83,10 +83,10 @@ flutter_launcher_icons:
 # Android 12+ handles splashes separately, so the android_12 block mirrors it.
 flutter_native_splash:
   color: "#16130F"
-  image: design/export/feature-1024x500.png
+  image: design/export/splash-logo.png
   android_12:
     color: "#16130F"
-    image: design/export/feature-1024x500.png
+    image: design/export/splash-logo.png
 
 flutter:
   uses-material-design: true
