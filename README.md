@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="design/export/feature-1024x500.png" alt="ScanAwake" width="680">
+</p>
+
 # ScanAwake ⏰📷
 
 **"Scan to wake. You actually have to get up."**
