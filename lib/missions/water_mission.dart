@@ -75,6 +75,13 @@ class _WaterViewState extends State<_WaterView>
   double _progress = 0; // 0..1
   bool _finished = false; // re-entry guard on completion
 
+  // FIX (checkup-260711 INFO-2): in-flight guard for _initMic. A rapid
+  // double-tap on the permission-gate grant button ran _initMic twice — the
+  // second startStream overwrote the first _sub without cancelling it. Cleared
+  // in `finally`, so a denied/failed attempt leaves the grant button fully
+  // re-tryable (D-08 gate behavior preserved).
+  bool _micStarting = false;
+
   // YAMNet throttle (RESEARCH Pattern 2): _isBusy is the async re-entry guard
   // (skip while a run is conceptually in flight / a chunk is being processed);
   // _lastInfer is the cadence gate against kWaterThrottleMs.
@@ -156,6 +163,11 @@ class _WaterViewState extends State<_WaterView>
   // home-screen request), then open the PCM16 mic stream. If denied, show the
   // İzin Ver/Ayarlar gate and DO NOT open the mic (the alarm keeps ringing).
   Future<void> _initMic() async {
+    // FIX (checkup-260711 INFO-2): drop a second call while one is in flight
+    // (double-tap on the grant button) or once the stream is already open —
+    // the first _sub must never be overwritten without cancellation.
+    if (_micStarting || _sub != null) return;
+    _micStarting = true;
     try {
       final granted = await Permission.microphone.isGranted;
       if (!granted) {
@@ -184,6 +196,11 @@ class _WaterViewState extends State<_WaterView>
     } catch (_) {
       // Mic could not open — best-effort. The mission can't complete but the
       // alarm keeps ringing and emergency stop stays reachable.
+    } finally {
+      // FIX (checkup-260711 INFO-2): always release the in-flight flag so a
+      // permission denial or a failed open leaves _initMic re-tryable from the
+      // grant button (no one-shot lockout).
+      _micStarting = false;
     }
   }
 

@@ -85,9 +85,14 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
   }
 
   Future<void> _initCamera() async {
+    // FIX (checkup-260711 INFO-3): an acquire in flight when _finish runs can
+    // complete during the pop transition (mounted is still true) and re-assign
+    // _cam / restart streaming post-success. Guard on _finished at entry and at
+    // every post-await resume point below.
+    if (_finished) return;
     try {
       final cameras = await availableCameras();
-      if (!mounted) return;
+      if (!mounted || _finished) return;
       if (cameras.isEmpty) {
         _scheduleAutoRetry();
         return;
@@ -104,7 +109,7 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
         enableAudio: false,
       );
       await controller.initialize();
-      if (!mounted) {
+      if (!mounted || _finished) {
         await controller.dispose();
         return;
       }
@@ -123,13 +128,13 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
       try {
         await controller.setFocusMode(FocusMode.locked);
       } catch (_) {}
-      if (!mounted) {
+      if (!mounted || _finished) {
         await controller.dispose();
         return;
       }
       _cam = controller;
       await controller.startImageStream(_onFrame);
-      if (!mounted) {
+      if (!mounted || _finished) {
         await controller.stopImageStream();
         await controller.dispose();
         _cam = null;
