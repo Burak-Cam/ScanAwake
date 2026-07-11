@@ -204,46 +204,64 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
     });
   }
 
-  // Completion: tear the camera DOWN FULLY (stopImageStream + dispose) BEFORE
-  // invoking onSuccess, so the single-camera device frees the lens for whatever
-  // the host screen does next and the screen can pop cleanly. Re-entry guarded.
+  // Completion: hand control back to the host FIRST, then tear the camera down
+  // best-effort in a DETACHED guarded chain. Re-entry guarded.
+  //
+  // FIX (mission-exit-teardown-crash, 2026-07-11): the old order (await
+  // stopImageStream + dispose BEFORE onSuccess) held the whole success exit
+  // (soft-loop stop, volume restore, streak award, Navigator.pop) hostage to
+  // camera teardown. On a wedged MIUI camera stack (device-observed 60s
+  // camera2/HWUI stall, Davey 60380ms) those awaits cannot complete, trapping
+  // the user on a stuck mission surface with the soft loop playing — the
+  // emergency stop was the only way out. The emergency path pops WITHOUT
+  // waiting on any camera teardown and survived the same stall; this mirrors
+  // it. The detached teardown still frees the single MIUI camera for the next
+  // open moments later — nothing after mission success needs the lens
+  // synchronously (the host pops to HomeScreen, which opens no camera).
   Future<void> _finish() async {
     if (_finished) return;
     _finished = true;
     _retryTimer?.cancel();
     final cam = _cam;
     _cam = null;
-    if (cam != null) {
-      try {
-        await cam.stopImageStream();
-      } catch (_) {}
-      if (!mounted) {
-        try {
-          await cam.dispose();
-        } catch (_) {}
-        return;
-      }
-      try {
-        await cam.dispose();
-      } catch (_) {}
+    if (mounted) {
+      widget.onSuccess();
     }
-    if (!mounted) return;
-    // Camera is fully torn down — safe to hand control back to the host.
-    widget.onSuccess();
+    // Best-effort, exception-safe, NOT awaited: a camera-stack stall or a
+    // teardown PlatformException must never reach (or delay) the exit chain.
+    unawaited(_teardownCamera(cam));
+  }
+
+  // FIX (mission-exit-teardown-crash): single guarded teardown used by BOTH
+  // exit paths. Every step is try/catch-wrapped because CameraController
+  // teardown can throw through the plugin (device logcat 2026-07-11 16:50:09:
+  // unhandled PlatformException 'releaseFlutterSurfaceTexture() cannot be
+  // called if the flutterSurfaceProducer ... has not yet been initialized'
+  // from the previously unprotected fire-and-forget dispose below).
+  static Future<void> _teardownCamera(CameraController? cam) async {
+    if (cam == null) return;
+    // MIUI single-camera discipline: stop the stream FIRST (shortens the
+    // native release window so the next camera open is less likely to race
+    // teardown), THEN dispose.
+    try {
+      await cam.stopImageStream();
+    } catch (_) {}
+    try {
+      await cam.dispose();
+    } catch (_) {}
   }
 
   @override
   void dispose() {
-    // MIUI single-camera discipline: stop the stream FIRST (shortens the native
-    // release window so the next camera open is less likely to race teardown),
-    // THEN dispose. dispose() cannot be async, so these are best-effort but
-    // fired before the controller is torn down. (scanner_screen lines 96-108.)
     _retryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     final cam = _cam;
     _cam = null;
-    cam?.stopImageStream();
-    cam?.dispose();
+    // FIX (mission-exit-teardown-crash): was an unprotected fire-and-forget
+    // `cam?.stopImageStream(); cam?.dispose();` — the source of the unhandled
+    // PlatformException when the emergency pop unmounted this state mid-stall.
+    // Now detached + guarded (dispose() cannot be async; best-effort is fine).
+    unawaited(_teardownCamera(cam));
     super.dispose();
   }
 
