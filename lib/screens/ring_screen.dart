@@ -242,16 +242,36 @@ class _RingScreenState extends State<RingScreen> {
   }
 
   void _requestRestart() {
+    // FIX (checkup-260711 WR-01): claim the single exit before popping. The
+    // restart tap is synchronous, but during the pop transition a second tap
+    // still reaches this button — a double tap was a double pop.
+    if (!_claimExit()) return;
     Navigator.pop(context, RingResult.restart);
   }
 
   void _useSnoozeToken() {
     if (widget.availableTokens > 0) {
+      // FIX (checkup-260711 WR-01): same claim-before-pop as every exit path.
+      if (!_claimExit()) return;
       Navigator.pop(context, RingResult.snooze);
     }
   }
 
   void _handleEmergencyStop() async {
+    // FIX (checkup-260711 WR-01): cheap early returns before any side effect.
+    // - _exited: another exit already popped — there is nothing left to stop.
+    // - _missionDone: the mission-success chain is running; the alarm is
+    //   already stopped, so emergency has nothing to stop and racing it would
+    //   only demote a success into an emergency.
+    // - isLocked && missionType == none: the barcode scan ALREADY succeeded and
+    //   the success tail is in its 2s delay — don't let emergency drop that
+    //   success. NOTE: on the mission path isLocked is true for the WHOLE
+    //   mission, so this condition is limited to missionType == none —
+    //   emergency stays reachable during a mission (D-13 preserved).
+    if (_exited) return;
+    if (_missionDone) return;
+    if (isLocked && widget.missionType == MissionType.none) return;
+
     final prefs = PrefsService(await SharedPreferences.getInstance());
     await prefs.setRinging(false);
 
@@ -262,6 +282,10 @@ class _RingScreenState extends State<RingScreen> {
     _restoreAlarmVolumeIfNeeded();
     HapticFeedback.lightImpact();
     if (!mounted) return;
+    // FIX (checkup-260711 WR-01): claim immediately before the pop — if a
+    // success exit popped while this handler was suspended at an await, skip
+    // the second pop (which would pop HomeScreen underneath → black screen).
+    if (!_claimExit()) return;
     // FIX-01: return RingResult.emergency (was an arg-less pop) so the dismiss
     // chain in _startAlarmListener can re-arm a repeating alarm to its next
     // occurrence. The user-facing cancelled-snackbar is shown there/here.
@@ -274,6 +298,27 @@ class _RingScreenState extends State<RingScreen> {
   }
 
   bool isLocked = false;
+
+  // FIX (checkup-260711 WR-01): exit mutual exclusion. A Flutter State stays
+  // `mounted` through the WHOLE pop transition (~300ms), so an `if (mounted)`
+  // guard does NOT prevent a second Navigator.pop — the second pop removes the
+  // route BELOW RingScreen (HomeScreen, the root route) → black screen /
+  // finished activity. This flag gives the (single) pop to whichever exit path
+  // claims it first. The losing path still runs its own side effects
+  // (Alarm.stop, setRinging(false) and _restoreAlarmVolumeIfNeeded are all
+  // idempotent) but skips the pop. NEVER set at the START of an async exit
+  // path — only immediately before the pop — so an exit stalled at an await
+  // (e.g. Alarm.stop on a wedged platform thread) can never hold the flag and
+  // block a legitimate exit from popping (that would be a user trap).
+  bool _exited = false;
+
+  // Set-and-check helper: returns true exactly once, for the first claimer.
+  bool _claimExit() {
+    if (_exited) return false;
+    _exited = true;
+    return true;
+  }
+
   Future<void> _onScanSuccess() async {
     if (isLocked) return;
     setState(() => isLocked = true);
@@ -301,7 +346,9 @@ class _RingScreenState extends State<RingScreen> {
 
     await Future.delayed(const Duration(seconds: 2));
 
-    if(mounted) {
+    // FIX (checkup-260711 WR-01): claim the exit — an emergency stop resumed
+    // during the 2s delay must not produce a second pop (and vice versa).
+    if (mounted && _claimExit()) {
       Navigator.pop(context, RingResult.success);
     }
   }
@@ -547,7 +594,9 @@ class _RingScreenState extends State<RingScreen> {
     // never at barcode scan).
     await _awardStreakAndToken(prefs);
 
-    if (mounted) {
+    // FIX (checkup-260711 WR-01): claim the exit — mutual exclusion with the
+    // emergency-stop pop (whichever side pops second would pop HomeScreen).
+    if (mounted && _claimExit()) {
       Navigator.pop(context, RingResult.success);
     }
   }
@@ -560,13 +609,23 @@ class _RingScreenState extends State<RingScreen> {
     try {
       Vibration.cancel();
     } catch (_) {}
-    controller?.dispose();
+    // FIX (checkup-260711 WR-02): these teardowns fired raw, unawaited
+    // platform-channel futures — exactly the post-unmount unhandled-exception
+    // class _detach exists to prevent (logcat precedent:
+    // releaseFlutterSurfaceTexture PlatformException). Null-swap the controller
+    // first (PR #20 pattern) so a late callback can't double-dispose it, then
+    // detach every future so a rejection after unmount is swallowed.
+    final c = controller;
+    controller = null;
+    if (c != null) _detach(c.dispose());
     // ENG-01 (sov-02): restore the user's alarm volume as a teardown backstop
     // (idempotent fire-and-forget; no-op if already restored or never boosted).
     _restoreAlarmVolumeIfNeeded();
-    // ENG-01: best-effort teardown of the Stage-2 soft loop.
-    _softPlayer.stop();
-    _softPlayer.dispose();
+    // ENG-01: best-effort teardown of the Stage-2 soft loop. stop→dispose order
+    // preserved; if this backstop stop() races the detached success-path stop()
+    // inside audioplayers, _detach swallows the rejection (WR-02).
+    _detach(_softPlayer.stop());
+    _detach(_softPlayer.dispose());
     super.dispose();
   }
 

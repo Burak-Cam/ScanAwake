@@ -110,6 +110,44 @@ Future<bool> scheduleAlarmFn(
   return true;
 }
 
+/// FIX (checkup-260711 WR-03): the pure, unit-testable decode of a fired
+/// alarm's payload — extracted VERBATIM from home_screen's ring-listener
+/// inline block so the restart re-fire can carry the decoded kind (and so the
+/// semantics are pinned by fired_payload_decode_test.dart).
+///
+/// Back-compat / defensive semantics (the dismiss path must NEVER crash —
+/// core value):
+/// - null/empty payload (a legacy alarm scheduled before payloads existed)
+///   => defaults ([AlarmKind.real], [MissionType.none]).
+/// - kind decodes via `AlarmKind.values.byName`, which THROWS on an unknown
+///   name — the catch then resets BOTH values to the defaults (Pitfall 2).
+/// - mission decodes via `asNameMap()[x] ?? none` (NOT byName — Pitfall 5):
+///   an unknown/typo/future mission name (e.g. from a newer build) falls to
+///   none and never throws.
+/// - non-string values are ignored (`is String` checks), keeping defaults.
+({AlarmKind kind, MissionType mission}) decodeFiredPayload(String? rawPayload) {
+  AlarmKind kind = AlarmKind.real;
+  MissionType mission = MissionType.none;
+  if (rawPayload != null && rawPayload.isNotEmpty) {
+    try {
+      final decodedPayload = jsonDecode(rawPayload);
+      if (decodedPayload is Map && decodedPayload['kind'] is String) {
+        kind = AlarmKind.values.byName(decodedPayload['kind'] as String);
+      }
+      if (decodedPayload is Map && decodedPayload['mission'] is String) {
+        mission = MissionType.values
+                .asNameMap()[decodedPayload['mission'] as String] ??
+            MissionType.none;
+      }
+    } catch (_) {
+      // Corrupt/unknown payload => safe defaults. Never crash on dismiss.
+      kind = AlarmKind.real;
+      mission = MissionType.none;
+    }
+  }
+  return (kind: kind, mission: mission);
+}
+
 /// FIX-05: monotonic id step. Pure helper backing the SharedPreferences
 /// `alarm_id_counter` so unit tests can assert it never collides.
 int incrementId(int prior) => prior + 1;
