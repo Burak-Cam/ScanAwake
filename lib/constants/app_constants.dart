@@ -18,6 +18,28 @@ const Color kBrandDark = Color(0xFF16130F);
 /// dismiss. Safe-side 2.5s value (RLS-05) — pinned by cooldown_value_test.dart.
 const int kCameraRestartCooldownMs = 2500;
 
+/// FIX (lumen-camera-never-starts, 2026-07-11): device-confirmed root cause —
+/// `camera_android_camerax`'s `startImageStream()` resolves successfully the
+/// instant it subscribes to the platform stream, but the actual CameraX
+/// ImageAnalysis use-case bind happens LATER inside that stream's `onListen`
+/// callback (`onStreamedFrameAvailable` -> `_configureImageAnalysis` in
+/// android_camera_camerax.dart), whose returned Future is discarded by the
+/// `StreamController`'s void-returning `onListen` signature. If the bind
+/// later fails (device-observed: "No supported surface combination... may be
+/// attempting to bind too many use cases" on the Redmi Note 9S, MIUI
+/// single-camera device, most likely a residual UseCase from a prior failed
+/// attempt still attached when a new one binds), the exception surfaces as a
+/// genuinely UNCATCHABLE unhandled exception — the mission's own
+/// `try { await controller.startImageStream(...) } catch (_) { ... }` can
+/// never see it, so the self-heal retry never fires and `_onFrame` is never
+/// called again: `_streaming` is already `true` (the "Starting Camera..."
+/// hint vanished) but the progress bar is frozen forever — the mission can
+/// never complete (core-value trap, only exit is emergency stop). A frame
+/// watchdog is the only reliable signal: if no frame lands within this many
+/// ms of "success", treat it exactly like a failed acquire and self-heal via
+/// the existing backoff retry (lumen/color/object_mission.dart).
+const int kCameraFrameWatchdogMs = 2000;
+
 /// D-01: the maximum number of dismissal barcodes a user may register
 /// (CLAUDE.md "barcode CRUD max 3"). Both `_HomeScreenState` barcode guards
 /// (length >= [kMaxBarcodes] / length < [kMaxBarcodes]) reference this.

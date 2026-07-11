@@ -91,6 +91,16 @@ class _ColorViewState extends State<_ColorView>
   static const int _maxRetries = 6;
   Timer? _retryTimer;
 
+  // FIX (lumen-camera-never-starts, 2026-07-11): camera_android_camerax's
+  // startImageStream() can resolve successfully even when the underlying
+  // CameraX ImageAnalysis bind later fails (device-confirmed root cause — see
+  // kCameraFrameWatchdogMs doc in app_constants.dart / lumen_mission.dart
+  // analog). That failure is UNCATCHABLE by our try/catch around
+  // startImageStream, so _streaming can end up true with _onFrame never
+  // called again. This watchdog is the only reliable signal: no frame within
+  // kCameraFrameWatchdogMs of "success" is treated like a failed acquire.
+  Timer? _frameWatchdog;
+
   // MIS-02 slot machine: a single stock AnimationController drives the vertical
   // color-strip scroll (Curves.decelerate) over ~1.5s, landing on the random
   // target. Disposed in dispose(). No new package (CLAUDE.md constraint).
@@ -232,16 +242,29 @@ class _ColorViewState extends State<_ColorView>
         return;
       }
       setState(() => _streaming = true);
+      _armFrameWatchdog();
     } catch (_) {
       // CameraException (acquire race / busy) — self-heal via backoff retry.
       _scheduleAutoRetry();
     }
   }
 
+  // FIX (lumen-camera-never-starts): arm/re-arm the frame-arrival watchdog
+  // right after we believe streaming has started. Cancelled the moment a real
+  // frame lands (_onFrame) — proof the stream is genuinely alive.
+  void _armFrameWatchdog() {
+    _frameWatchdog?.cancel();
+    _frameWatchdog = Timer(const Duration(milliseconds: kCameraFrameWatchdogMs), () {
+      if (_finished || !mounted) return;
+      _scheduleAutoRetry();
+    });
+  }
+
   // Self-heal a transient camera-acquire failure with a short backoff before
   // giving up. (lumen_mission analog, lines 147-169.)
   void _scheduleAutoRetry() {
     if (_finished) return;
+    _frameWatchdog?.cancel();
     if (_retryCount >= _maxRetries) return;
     if (_retryTimer?.isActive ?? false) return;
     _retryCount++;
@@ -270,6 +293,9 @@ class _ColorViewState extends State<_ColorView>
   // (step 2) and ROI-only so it stays cheap at 15-30fps (RESEARCH Pitfall 3).
   void _onFrame(CameraImage img) {
     if (_finished || !mounted) return;
+    // FIX (lumen-camera-never-starts): a real frame arrived — the stream is
+    // genuinely alive, so the watchdog armed in _armFrameWatchdog is moot.
+    _frameWatchdog?.cancel();
     // While the slot is still spinning the user cannot aim yet — do NOT
     // accumulate hold, and clear _lastTick so the FIRST frame after the spin
     // measures dt from "now" (a stale _lastTick would inject a huge dtMs that
@@ -410,6 +436,7 @@ class _ColorViewState extends State<_ColorView>
       setState(() => _streaming = false);
     }
     _retryTimer?.cancel();
+    _frameWatchdog?.cancel();
     final cam = _cam;
     _cam = null;
     if (mounted) {
@@ -440,6 +467,7 @@ class _ColorViewState extends State<_ColorView>
   @override
   void dispose() {
     _retryTimer?.cancel();
+    _frameWatchdog?.cancel();
     _slot.dispose();
     WidgetsBinding.instance.removeObserver(this);
     final cam = _cam;

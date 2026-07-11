@@ -65,6 +65,19 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
   static const int _maxRetries = 6;
   Timer? _retryTimer;
 
+  // FIX (lumen-camera-never-starts, 2026-07-11): camera_android_camerax's
+  // startImageStream() resolves successfully even when the underlying CameraX
+  // ImageAnalysis bind later fails — that bind runs detached inside the
+  // plugin's StreamController onListen callback (see kCameraFrameWatchdogMs
+  // doc in app_constants.dart), so a bind failure throws an UNCATCHABLE
+  // unhandled exception our try/catch around startImageStream can never see.
+  // _streaming ends up true (the "Starting Camera..." hint vanishes) but
+  // _onFrame is never called — the mission is stuck forever. This watchdog is
+  // the only reliable signal: if no frame lands within kCameraFrameWatchdogMs
+  // of "success", treat it exactly like a failed acquire and self-heal via
+  // the existing backoff retry.
+  Timer? _frameWatchdog;
+
   @override
   void initState() {
     super.initState();
@@ -141,16 +154,29 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
         return;
       }
       setState(() => _streaming = true);
+      _armFrameWatchdog();
     } catch (_) {
       // CameraException (acquire race / busy) — self-heal via backoff retry.
       _scheduleAutoRetry();
     }
   }
 
+  // FIX (lumen-camera-never-starts): arm/re-arm the frame-arrival watchdog
+  // right after we believe streaming has started. Cancelled the moment a real
+  // frame lands (_onFrame) — proof the stream is genuinely alive.
+  void _armFrameWatchdog() {
+    _frameWatchdog?.cancel();
+    _frameWatchdog = Timer(const Duration(milliseconds: kCameraFrameWatchdogMs), () {
+      if (_finished || !mounted) return;
+      _scheduleAutoRetry();
+    });
+  }
+
   // Self-heal a transient camera-acquire failure with a short backoff before
   // giving up. (scanner_screen analog, lines 63-81.)
   void _scheduleAutoRetry() {
     if (_finished) return;
+    _frameWatchdog?.cancel();
     if (_retryCount >= _maxRetries) return;
     if (_retryTimer?.isActive ?? false) return;
     _retryCount++;
@@ -175,6 +201,9 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
 
   void _onFrame(CameraImage img) {
     if (_finished || !mounted) return;
+    // FIX (lumen-camera-never-starts): a real frame arrived — the stream is
+    // genuinely alive, so the watchdog armed in _armFrameWatchdog is moot.
+    _frameWatchdog?.cancel();
 
     // Y/luma plane (plane 0). Subsample (i += 16) — per-pixel work janks the
     // isolate at ~15-30fps (RESEARCH Anti-Pattern). avg is on a 0..255 scale.
@@ -227,6 +256,7 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
     if (_finished) return;
     _finished = true;
     _retryTimer?.cancel();
+    _frameWatchdog?.cancel();
     final cam = _cam;
     _cam = null;
     if (mounted) {
@@ -259,6 +289,7 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
   @override
   void dispose() {
     _retryTimer?.cancel();
+    _frameWatchdog?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     final cam = _cam;
     _cam = null;
