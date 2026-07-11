@@ -16,7 +16,7 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.burakcam.uyan"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -42,7 +42,12 @@ android {
         // — Redmi Note 9S Android 11 unaffected. Set explicitly because the inherited
         // flutter.minSdkVersion (24) is below the TFLite native-lib floor.
         minSdk = 26
-        targetSdk = flutter.targetSdkVersion
+        // OPT-02 (Phase 9, D-01): explicit pin 36 — Play, 2026-08-31'den itibaren yeni
+        // uygulamalarda API 36 istiyor; Flutter 3.41.7 default'u zaten 36, pin Flutter
+        // upgrade'lerine karşı determinizm sağlar. Roadmap SC-3 '35' diyordu —
+        // 09-RESEARCH.md Pitfall 2 ile 36'ya güncellendi (35 = downgrade + gelecek
+        // submission reddi).
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -77,10 +82,28 @@ android {
                     "(debug/profile build'leri etkilenmez)."
                 )
             }
+            // OPT-01 (Phase 9, SC-1): R8 minify + resource shrink — keep/dontwarn seti
+            // proguard-rules.pro'da (TFLite/ML Kit/GPU delegate). optimize varyantı
+            // bilinçli tercih; yalnız release'i etkiler, debug/profile dokunulmaz.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // 16KB fix (OPT-02, D-02): mobile_scanner 5.2.3 bundled barcode-scanning 17.2.0
+    // çeker (4KB .so — libbarhopper_v3); 17.3.0 resmî 16KB-uyumlu sürüm (ML Kit
+    // release notes 2024-08-07). Gradle highest-wins çözümlemesi ile plugin bump'sız
+    // yükseltme — mobile_scanner Dart/Kotlin API'sine ve MIUI kamera fix'lerine
+    // (PR #2) dokunulmaz.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 }
