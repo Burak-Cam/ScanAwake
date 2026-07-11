@@ -394,9 +394,22 @@ class _HomeScreenState extends State<HomeScreen> {
            // silently downgrades to MissionType.none (barcode then fully closes
            // it, losing the two-stage wake). firedMission is the decoded mission
            // of this very fire.
-           final restarted = await scheduleAlarmFn(alarmSettings.id, DateTime.now().add(const Duration(milliseconds: 100)), false, currentLang, widget.currentRingtone, index != -1 ? alarms[index].label : '', AlarmKind.real, missionType: firedMission);
+           //
+           // FIX (restart-kills-repeating-alarm): the re-fire MUST use a
+           // TRANSIENT id (exactly like the snooze path below), NEVER the stable
+           // entity id. `Alarm.set` cancels any pending alarm with the same id
+           // before scheduling (alarm-5.1.5 alarm.dart:97-102), so a stable-id
+           // re-fire followed by the stable-id _rearmIfRepeating below was
+           // CANCELLED milliseconds after being set — a REPEATING alarm went
+           // fully silent on restart (no re-ring, no camera/barcode stage, a
+           // scan-free dismiss = core-value violation) and quietly re-armed to
+           // tomorrow. With a transient id the now+100ms re-fire and the
+           // next-occurrence re-arm coexist. One-shot alarms were never affected
+           // (_rearmIfRepeating is a no-op for them).
+           final restarted = await scheduleAlarmFn(await nextAlarmId(prefs), DateTime.now().add(const Duration(milliseconds: 100)), false, currentLang, widget.currentRingtone, index != -1 ? alarms[index].label : '', AlarmKind.real, missionType: firedMission);
            // FIX-01: the transient restart fire above is a one-off; a REPEATING
-           // alarm must still keep its next scheduled occurrence (stable id).
+           // alarm must still keep its next scheduled occurrence (stable id —
+           // no longer colliding with the transient re-fire id above).
            final restartRearmed = await _rearmIfRepeating(index);
            // CR-02: if exact-alarm permission was revoked mid-ring, the restart
            // (and/or the repeating re-arm) silently failed — surface it.
