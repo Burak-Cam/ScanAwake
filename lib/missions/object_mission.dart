@@ -131,6 +131,16 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
   static const int _maxRetries = 6;
   Timer? _retryTimer;
 
+  // FIX (lumen-camera-never-starts, 2026-07-11): camera_android_camerax's
+  // startImageStream() can resolve successfully even when the underlying
+  // CameraX ImageAnalysis bind later fails (device-confirmed root cause — see
+  // kCameraFrameWatchdogMs doc in app_constants.dart / lumen_mission.dart
+  // analog). That failure is UNCATCHABLE by our try/catch around
+  // startImageStream, so _streaming can end up true with _onFrame never
+  // called again. This watchdog is the only reliable signal: no frame within
+  // kCameraFrameWatchdogMs of "success" is treated like a failed acquire.
+  Timer? _frameWatchdog;
+
   // MIS-03: the random target key (a key of kObjectTargets, e.g. 'cup'). Picked
   // by _spin() on open + on every reroll.
   late String _targetKey;
@@ -282,16 +292,29 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
         return;
       }
       setState(() => _streaming = true);
+      _armFrameWatchdog();
     } catch (_) {
       // CameraException (acquire race / busy) — self-heal via backoff retry.
       _scheduleAutoRetry();
     }
   }
 
+  // FIX (lumen-camera-never-starts): arm/re-arm the frame-arrival watchdog
+  // right after we believe streaming has started. Cancelled the moment a real
+  // frame lands (_onFrame) — proof the stream is genuinely alive.
+  void _armFrameWatchdog() {
+    _frameWatchdog?.cancel();
+    _frameWatchdog = Timer(const Duration(milliseconds: kCameraFrameWatchdogMs), () {
+      if (_finished || !mounted) return;
+      _scheduleAutoRetry();
+    });
+  }
+
   // Self-heal a transient camera-acquire failure with a short backoff before
   // giving up. (color_mission analog, lines 237-259.)
   void _scheduleAutoRetry() {
     if (_finished) return;
+    _frameWatchdog?.cancel();
     if (_retryCount >= _maxRetries) return;
     if (_retryTimer?.isActive ?? false) return;
     _retryCount++;
@@ -323,6 +346,9 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
   // frame / native hiccup never crashes the dismiss (T-06-03 / Pitfall 6).
   Future<void> _onFrame(CameraImage img) async {
     if (_finished || !mounted) return;
+    // FIX (lumen-camera-never-starts): a real frame arrived — the stream is
+    // genuinely alive, so the watchdog armed in _armFrameWatchdog is moot.
+    _frameWatchdog?.cancel();
     // While we are between reroll picks the user cannot aim yet (mirrors the
     // ColorMission _spinning guard); _spin() already clears _lastTick so the
     // FIRST throttled tick after a reroll measures dt from "now" (a stale
@@ -458,6 +484,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
       setState(() => _streaming = false);
     }
     _retryTimer?.cancel();
+    _frameWatchdog?.cancel();
     final cam = _cam;
     _cam = null;
     final labeler = _imageLabeler;
@@ -497,6 +524,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
   @override
   void dispose() {
     _retryTimer?.cancel();
+    _frameWatchdog?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     final cam = _cam;
     _cam = null;

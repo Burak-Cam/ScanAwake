@@ -277,6 +277,24 @@ class _RingScreenState extends State<RingScreen> {
 
     setState(() => isLocked = true);
     await Alarm.stop(widget.alarmId);
+    // FIX (lumen-camera-never-starts defect B, 2026-07-11): Alarm.stop() above
+    // only silences the alarm PACKAGE's own audio — by Stage 2 that was
+    // already stopped at the barcode-scan success (_onScanSuccess). The
+    // actually-audible Stage-2 wake pressure is a SEPARATE channel per mission
+    // (_softPlayer's soft loop for audio missions, a looping Vibration for the
+    // su mission) that was previously only stopped in _onMissionSuccess /
+    // dispose() — and dispose() is deferred until the Navigator.pop transition
+    // below actually finishes, which under heavy platform-channel contention
+    // (e.g. a camera retry storm) can take seconds. Stop both immediately and
+    // unconditionally here (detached + guarded, like every other teardown in
+    // this file; a no-op on whichever channel this mission never used) so the
+    // alarm is audibly/haptically silenced the instant emergency stop is
+    // pressed, independent of any later pop/dispose delay.
+    _detach(_softPlayer.stop());
+    _missionVibrationTimer?.cancel();
+    try {
+      Vibration.cancel();
+    } catch (_) {}
     // ENG-01 (sov-02): restore the user's alarm volume on the emergency-stop
     // exit (idempotent; no-op if no boost happened).
     _restoreAlarmVolumeIfNeeded();
