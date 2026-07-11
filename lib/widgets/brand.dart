@@ -7,7 +7,9 @@ import '../constants/app_constants.dart';
 /// Two spans in genuine Montserrat (weight 700), uppercased with the brand's wide
 /// tracking. "SCAN" is theme-aware so it stays legible on either themed AppBar
 /// background ([kBrandCream] on dark, [kBrandDark] on light); "AWAKE" is always
-/// [kBrandRed]. Single line to avoid AppBar overflow.
+/// [kBrandRed]. Single line, self-fitting: when the layout offers less width
+/// than the natural lockup, it scales itself down to fit (never up), and it is
+/// independent of the system text scale — it is a logo, not accessibility text.
 class ScanAwakeWordmark extends StatelessWidget {
   final double fontSize;
 
@@ -25,16 +27,19 @@ class ScanAwakeWordmark extends StatelessWidget {
       letterSpacing: 2,
     );
 
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(text: 'SCAN', style: base.copyWith(color: scanColor)),
-          TextSpan(text: 'AWAKE', style: base.copyWith(color: kBrandRed)),
-        ],
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(text: 'SCAN', style: base.copyWith(color: scanColor)),
+            TextSpan(text: 'AWAKE', style: base.copyWith(color: kBrandRed)),
+          ],
+        ),
+        maxLines: 1,
+        textScaler: TextScaler.noScaling,
       ),
-      maxLines: 1,
-      overflow: TextOverflow.visible,
-      textAlign: TextAlign.center,
     );
   }
 }
