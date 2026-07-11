@@ -260,14 +260,38 @@ class _WaterViewState extends State<_WaterView>
     }
   }
 
-  // Completion: tear the mic DOWN FULLY (cancel sub + stop + dispose) AND close
-  // the native interpreter BEFORE invoking onSuccess. Re-entry guarded.
+  // Completion: hand control back to the host FIRST, then tear the mic +
+  // interpreter down best-effort in a DETACHED guarded chain (lumen/color/object
+  // analog). Re-entry guarded.
+  //
+  // FIX (mission-exit-teardown-crash, 2026-07-11): the old order (await
+  // sub.cancel + recorder.stop/dispose BEFORE onSuccess) held the success exit
+  // hostage to plugin teardown — the same hostage family as the camera missions
+  // (device-observed 60s MIUI platform stall). Mirrors the emergency-stop path,
+  // which pops without waiting on any teardown and survived the same stall.
   Future<void> _finish() async {
     if (_finished) return;
     _finished = true;
-    // Stop the mic FIRST (close the capture window), then release the interpreter.
     final sub = _sub;
     _sub = null;
+    final interpreter = _interpreter;
+    _interpreter = null;
+    if (mounted) {
+      widget.onSuccess();
+    }
+    // Best-effort, exception-safe, NOT awaited: a wedged platform thread or a
+    // teardown exception must never reach (or delay) the exit chain.
+    unawaited(_teardownAudio(sub, interpreter));
+  }
+
+  // FIX (mission-exit-teardown-crash): single guarded teardown used by BOTH
+  // exit paths. Stops the mic FIRST (closes the capture window), then releases
+  // the recorder and the native interpreter (Anti-Pattern: one-path teardown
+  // leaks the native interpreter). Every step try/catch-wrapped so nothing can
+  // surface as an unhandled exception (the camera missions' logcat precedent,
+  // 2026-07-11).
+  Future<void> _teardownAudio(
+      StreamSubscription<Uint8List>? sub, Interpreter? interpreter) async {
     if (sub != null) {
       try {
         await sub.cancel();
@@ -279,28 +303,22 @@ class _WaterViewState extends State<_WaterView>
     try {
       await _recorder.dispose();
     } catch (_) {}
-    // Release the native interpreter on BOTH exit paths (Anti-Pattern: one-path
-    // teardown leaks the native interpreter).
     try {
-      _interpreter?.close();
+      interpreter?.close();
     } catch (_) {}
-    _interpreter = null;
-    if (!mounted) return;
-    // Mic + interpreter fully torn down — safe to hand control back to the host.
-    widget.onSuccess();
   }
 
   @override
   void dispose() {
-    // Two-path teardown: a mid-mission unmount also tears everything down. dispose
-    // cannot be async, so these are best-effort but fired before super.dispose().
+    // Two-path teardown: a mid-mission unmount also tears everything down.
     _rippleCtrl.dispose();
-    _sub?.cancel();
+    final sub = _sub;
     _sub = null;
-    _recorder.stop();
-    _recorder.dispose();
-    _interpreter?.close();
+    final interpreter = _interpreter;
     _interpreter = null;
+    // FIX (mission-exit-teardown-crash): was an unprotected fire-and-forget
+    // teardown; now detached + guarded (dispose() cannot be async).
+    unawaited(_teardownAudio(sub, interpreter));
     super.dispose();
   }
 

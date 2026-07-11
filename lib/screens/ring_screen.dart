@@ -38,6 +38,25 @@ SoftLoopSource resolveSoftLoopSource(String path) {
   return (isAsset: false, value: path);
 }
 
+/// FIX (mission-exit-teardown-crash, 2026-07-11): fire-and-forget a
+/// platform-channel future so a wedged platform thread (device-observed 60s
+/// MIUI camera2/HWUI stall) can never hold an exit chain hostage, and swallow
+/// its error so it can never surface as an unhandled exception. The command is
+/// still SENT immediately — under normal conditions behavior is identical to
+/// awaiting; under a stall the exit proceeds and the call lands when the
+/// platform revives.
+void _detach(Future<void> future) {
+  // try/await/catch instead of .catchError: several detached futures are
+  // runtime Future<bool> (shared_preferences) upcast to Future<void>, and
+  // catchError's handler-return type is checked against the RUNTIME generic —
+  // a void handler would itself throw a TypeError exactly when an error fires.
+  unawaited(() async {
+    try {
+      await future;
+    } catch (_) {}
+  }());
+}
+
 class RingScreen extends StatefulWidget {
   final List<String> targetBarcodes;
   final bool startWithoutVibration;
@@ -438,13 +457,17 @@ class _RingScreenState extends State<RingScreen> {
         // days (a real streak decays on inactivity; tokens are NOT wiped here —
         // only a genuine cheat does that).
         currentStreak = nextStreak(currentStreak, lastScan, today);
-        await prefs.setUserStreak(currentStreak);
-        await prefs.setLastScanDate(today);
+        // FIX (mission-exit-teardown-crash): DETACHED writes — the prefs cache
+        // updates synchronously (award math + reads unaffected); awaiting the
+        // platform commit gated the snackbar + Navigator.pop on a possibly
+        // wedged platform thread.
+        _detach(prefs.setUserStreak(currentStreak));
+        _detach(prefs.setLastScanDate(today));
 
         bool tokenEarned = false;
         if (currentStreak % 3 == 0 && currentTokens < 3) {
            currentTokens++;
-           await prefs.setSnoozeTokens(currentTokens);
+           _detach(prefs.setSnoozeTokens(currentTokens));
            tokenEarned = true;
         }
 
@@ -498,15 +521,26 @@ class _RingScreenState extends State<RingScreen> {
     try {
       Vibration.cancel();
     } catch (_) {}
-    await _softPlayer.stop();
+    // FIX (mission-exit-teardown-crash): DETACHED (was `await _softPlayer.stop()`).
+    // audioplayers stop is a platform-channel round-trip; on a wedged platform
+    // thread awaiting it held the whole success exit — including Navigator.pop
+    // — hostage. The stop command is still sent immediately; dispose() stops
+    // the player again as a backstop.
+    _detach(_softPlayer.stop());
     // ENG-01 (sov-02): restore the user's alarm volume on the success exit
     // (idempotent; no-op if no boost happened, e.g. su mission).
     _restoreAlarmVolumeIfNeeded();
     HapticFeedback.heavyImpact();
 
+    // NOTE: getInstance() is a completed cached future by mission time (prefs
+    // were loaded at app start) — this await is a microtask, not a channel trip.
     final prefs = PrefsService(await SharedPreferences.getInstance());
     // Cleared HERE — the sole is_ringing clear on the mission path (D-15).
-    await prefs.setRinging(false);
+    // FIX (mission-exit-teardown-crash): DETACHED — shared_preferences updates
+    // its in-memory cache SYNCHRONOUSLY (all reads see the new value at once);
+    // only the disk commit rides the platform channel, and awaiting it cannot
+    // make persistence safer under a stall — it can only block the exit.
+    _detach(prefs.setRinging(false));
 
     // Single-source award (shared with the none-mission tail). Pitfall 3: this
     // is the ONLY place a mission alarm's streak is awarded (at mission success,
