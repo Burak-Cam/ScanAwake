@@ -69,6 +69,16 @@ class _HomeScreenState extends State<HomeScreen> {
   // ringing. A genuine FGBGType.background event = real escape (sets
   // escape_detected). flutter_fgbg is already a transitive dep (no new package).
   StreamSubscription<FGBGType>? _fgbgSubscription;
+  // FIX (checkup-260711 WR-04): escape-watch generation counter. The
+  // Alarm.ringing listener callback is NOT serialized — the restart path's
+  // now+100ms transient re-fire can ring while the FIRST handler still has
+  // awaits pending (_rearmIfRepeating = two platform round-trips). The NEW
+  // ring's handler then starts its own escape watch first, and the OLD
+  // handler's tail would cancel it — leaving the restarted ring with no
+  // anti-cheat escape detection (and clearing a genuine escape flag). Each
+  // _startEscapeWatch bumps this generation; a dismiss tail only tears the
+  // watch down when the generation it started is still current.
+  int _escapeWatchGen = 0;
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -231,7 +241,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // FIX-02 / D-01a: begin watching for a real app-level escape while ringing.
   // Mirrors the alarmSubscription subscribe/cancel shape (:316 / dispose).
-  Future<void> _startEscapeWatch() async {
+  // FIX (checkup-260711 WR-04): returns the generation of the subscription it
+  // just installed. The assignment and the bump are ADJACENT and SYNCHRONOUS
+  // (no await between them), so generation N always corresponds to the N-th
+  // subscription — the caller's tail compares its token against
+  // _escapeWatchGen to know whether the active watch is still its own.
+  Future<int> _startEscapeWatch() async {
     await _fgbgSubscription?.cancel();
     _fgbgSubscription = FGBGEvents.instance.stream.listen((event) async {
       if (event != FGBGType.background) return;
@@ -243,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       await prefs.setEscapeDetected(true);
     });
+    return ++_escapeWatchGen;
   }
 
   // Stop watching once the alarm is dismissed (any path).
@@ -302,34 +318,18 @@ class _HomeScreenState extends State<HomeScreen> {
       await prefs.setRingingSetAt(DateTime.now().millisecondsSinceEpoch);
       await prefs.setEscapeDetected(false);
       // Begin app-level escape detection while ringing (FIX-02 / D-01a).
-      await _startEscapeWatch();
+      // FIX (checkup-260711 WR-04): capture the generation of the watch THIS
+      // handler started, so this handler's dismiss tail can only tear down a
+      // watch that is still its own (see the gen check at the tail below).
+      final escapeWatchGen = await _startEscapeWatch();
 
-      // FIX-04 / D-03 (Pitfall 2): decode the alarm TYPE from the payload. A
-      // legacy alarm scheduled before this change has no payload (null/empty)
-      // and is treated as AlarmKind.real — back-compat, never crashes.
-      AlarmKind firedKind = AlarmKind.real;
-      // ENG-03 / MIS-01 / D-11: decode the dismissal mission from the SAME
-      // payload. Default none (legacy alarms, missing/corrupt payload). Decoded
-      // with `asNameMap()[x] ?? none` (NOT byName — Pitfall 5): an unknown/typo/
-      // future mission name (e.g. 'water' from a newer build) falls to none and
-      // NEVER throws, so the dismiss path can always proceed (core value).
-      MissionType firedMission = MissionType.none;
-      final rawPayload = alarmSettings.payload;
-      if (rawPayload != null && rawPayload.isNotEmpty) {
-        try {
-          final decodedPayload = jsonDecode(rawPayload);
-          if (decodedPayload is Map && decodedPayload['kind'] is String) {
-            firedKind = AlarmKind.values.byName(decodedPayload['kind'] as String);
-          }
-          if (decodedPayload is Map && decodedPayload['mission'] is String) {
-            firedMission = MissionType.values.asNameMap()[decodedPayload['mission'] as String] ?? MissionType.none;
-          }
-        } catch (_) {
-          // Corrupt/unknown payload => safe defaults. Never crash on dismiss.
-          firedKind = AlarmKind.real;
-          firedMission = MissionType.none;
-        }
-      }
+      // FIX-04 / D-03 (Pitfall 2) + ENG-03 / MIS-01 / D-11: decode the alarm
+      // TYPE and dismissal MISSION from the payload via the extracted pure
+      // helper (checkup-260711 WR-03 — semantics unchanged, unit-pinned by
+      // fired_payload_decode_test.dart). Legacy alarms with no payload and
+      // corrupt/unknown payloads decode to (real, none) and NEVER crash, so
+      // the dismiss path can always proceed (core value).
+      final fired = decodeFiredPayload(alarmSettings.payload);
 
       final index = alarms.indexWhere((element) => element.id == alarmSettings.id);
 
@@ -362,11 +362,11 @@ class _HomeScreenState extends State<HomeScreen> {
               alarmId: alarmSettings.id,
               availableTokens: snoozeTokens,
               label: index != -1 ? alarms[index].label : '',
-              alarmKind: firedKind,
+              alarmKind: fired.kind,
               // ENG-01 / MIS-01: the decoded mission + the alarm's ringtone (for
               // the Stage-2 soft loop). RingResult switch below is UNCHANGED — a
               // mission success returns RingResult.success (re-armed at :289).
-              missionType: firedMission,
+              missionType: fired.mission,
               ringtonePath: widget.currentRingtone,
             ),
           ),
@@ -381,6 +381,15 @@ class _HomeScreenState extends State<HomeScreen> {
         // the four variants from RingScreen). Re-arm (FIX-01) stays on every path.
         switch (result) {
           case RingResult.restart:
+           // FIX (checkup-260711 WR-06): mint the re-fire id BEFORE Alarm.stop.
+           // The id mint is a platform-commit await (setInt); if it stalls
+           // AFTER the stop (the documented MIUI wedged-platform-thread family)
+           // the alarm is already silenced and RingScreen already popped — the
+           // re-fire is never scheduled and the morning ends silent, scan-free.
+           // Stalling BEFORE the stop leaves the alarm still RINGING — a
+           // recoverable window. Id allocation has no ordering dependency on
+           // the stop, so this reorder is behavior-neutral on the happy path.
+           final restartFireId = await nextAlarmId(prefs);
            // WR-01: clear the ringing flag like the other dismiss paths (was
            // omitted here); the restart fire below makes the listener set it
            // true again, so this avoids a stale is_ringing on an OEM-kill.
@@ -392,8 +401,16 @@ class _HomeScreenState extends State<HomeScreen> {
            // ENG-03 / MIS-01: the restart re-fire MUST carry the SAME mission as
            // the fire that just happened — otherwise a restarted Lümen alarm
            // silently downgrades to MissionType.none (barcode then fully closes
-           // it, losing the two-stage wake). firedMission is the decoded mission
-           // of this very fire.
+           // it, losing the two-stage wake). fired.mission is the decoded
+           // mission of this very fire.
+           //
+           // FIX (checkup-260711 WR-03): the re-fire carries the fired KIND
+           // verbatim too — exactly like fired.mission is already threaded
+           // through. Hardcoding AlarmKind.real here upgraded a restarted
+           // snooze/test ring to streak-eligible: scanning it passed
+           // streakEligible(real, ...) and awarded streak+token on a snoozed
+           // morning (D-03/FIX-04 violation). Pinned by
+           // fired_payload_decode_test.dart.
            //
            // FIX (restart-kills-repeating-alarm): the re-fire MUST use a
            // TRANSIENT id (exactly like the snooze path below), NEVER the stable
@@ -406,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
            // tomorrow. With a transient id the now+100ms re-fire and the
            // next-occurrence re-arm coexist. One-shot alarms were never affected
            // (_rearmIfRepeating is a no-op for them).
-           final restarted = await scheduleAlarmFn(await nextAlarmId(prefs), DateTime.now().add(const Duration(milliseconds: 100)), false, currentLang, widget.currentRingtone, index != -1 ? alarms[index].label : '', AlarmKind.real, missionType: firedMission);
+           final restarted = await scheduleAlarmFn(restartFireId, DateTime.now().add(const Duration(milliseconds: 100)), false, currentLang, widget.currentRingtone, index != -1 ? alarms[index].label : '', fired.kind, missionType: fired.mission);
            // FIX-01: the transient restart fire above is a one-off; a REPEATING
            // alarm must still keep its next scheduled occurrence (stable id —
            // no longer colliding with the transient re-fire id above).
@@ -435,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
              // ENG-03 / MIS-01 / D-14: the snoozed re-fire keeps the SAME mission
              // so snoozing can't be used to escape the Lümen task (snooze is
              // pre-barcode only). AlarmKind.snooze still blocks the streak.
-             missionType: firedMission,
+             missionType: fired.mission,
            );
            // FIX-01: the snooze above is transient; the REPEATING entity must
            // also be re-armed to its next occurrence (stable id) so it survives.
@@ -477,8 +494,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // Ring window is over (any dismiss path): stop watching for escapes and
         // clear the transient flag so a clean dismiss leaves no stale signal.
-        await _stopEscapeWatch();
-        await prefs.setEscapeDetected(false);
+        // FIX (checkup-260711 WR-04): only when the watch is still THIS
+        // handler's. If a restarted ring's handler already installed a newer
+        // watch (generation bumped), a stale tail must neither cancel the
+        // active ring's fgbg subscription nor clear an escape flag that newer
+        // ring may have genuinely set. Single-alarm sequential dismisses have
+        // equal generations, so behavior there is byte-identical.
+        if (escapeWatchGen == _escapeWatchGen) {
+          await _stopEscapeWatch();
+          await prefs.setEscapeDetected(false);
+        }
       }
       } // end for (alarmSettings in alarmSet.alarms)
     });
