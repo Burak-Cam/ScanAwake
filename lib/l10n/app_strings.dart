@@ -30,12 +30,23 @@ class AppStrings {
     'add_item_first': {'tr': 'Önce barkod ekle!', 'en': 'Add an item first!'},
     'battery_title': {'tr': '⚠️ Önemli Uyarı', 'en': '⚠️ Important'},
     'battery_desc': {
+      // Item 3 added 2026-07-26 after a device session proved it: with Do Not
+      // Disturb ON, the alarm's full-screen notification is suppressed, so the
+      // SOUND plays but the screen never wakes and the barcode screen never
+      // appears. Users switch DND on at night precisely because they rely on the
+      // alarm, so this is exactly when it bites. The channel's own audio usage
+      // cannot be corrected from app code (it belongs to the alarm plugin and is
+      // immutable once created), so guidance is the honest mitigation for now.
       'tr': 'Alarmın garanti çalması ve uygulamanın kapanmaması için açılan ekranda şunları yapmalısınız:\n\n'
             '1. PİL/BATARYA: "Kısıtlama Yok" veya "Sınırsız" seçeneğini seçin.\n'
-            '2. BAŞLATMA: Varsa "Otomatik Başlatma" veya "Arka Planda Çalışma" iznini açın.',
+            '2. BAŞLATMA: Varsa "Otomatik Başlatma" veya "Arka Planda Çalışma" iznini açın.\n'
+            '3. RAHATSIZ ETMEYİN: Açıksa, ScanAwake\'e izin verin. Aksi halde alarm ÇALAR '
+            'ama ekran açılmaz ve barkod okutma ekranı gelmez.',
       'en': 'To ensure the alarm rings reliably, please adjust these settings in the next screen:\n\n'
             '1. BATTERY: Select "Unrestricted" or "No Restrictions".\n'
-            '2. LAUNCH: Enable "Autostart" or "Run in Background" if available.'
+            '2. LAUNCH: Enable "Autostart" or "Run in Background" if available.\n'
+            '3. DO NOT DISTURB: If it is on, allow ScanAwake through it. Otherwise the '
+            'alarm SOUNDS but the screen stays off and the scan screen never appears.'
     },
     'btn_close': {'tr': 'Kapat', 'en': 'Close'},
     'emergency_btn': {'tr': 'ACİL DURUM KAPAT', 'en': 'EMERGENCY STOP'},
