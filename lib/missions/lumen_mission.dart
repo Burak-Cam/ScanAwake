@@ -21,8 +21,6 @@ class LumenMission implements Mission {
 
   const LumenMission({required this.language});
 
-  @override
-  String get title => AppStrings.get('mission_lumen_title', language);
 
   @override
   Widget build(BuildContext context, VoidCallback onSuccess) =>

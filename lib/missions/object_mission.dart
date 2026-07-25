@@ -51,8 +51,6 @@ class ObjectMission implements Mission {
 
   const ObjectMission({required this.language});
 
-  @override
-  String get title => AppStrings.get('mission_object_title', language);
 
   @override
   Widget build(BuildContext context, VoidCallback onSuccess) =>

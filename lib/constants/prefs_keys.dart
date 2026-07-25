@@ -2,7 +2,7 @@
 /// the app persists. Literals are BYTE-IDENTICAL to the originals scattered
 /// across main.dart so existing users' stored data keeps reading unchanged
 /// (no data migration). A missed/mistyped key is a silent data/behavior break
-/// (Pitfall 6), so all 13 live here and only here.
+/// (Pitfall 6), so all 14 live here and only here.
 abstract final class PrefsKeys {
   /// Saved UI language code ('tr' / 'en'). Nullable (falls back to device).
   static const String appLang = 'app_lang';

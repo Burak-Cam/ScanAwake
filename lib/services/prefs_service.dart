@@ -2,7 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/prefs_keys.dart';
 
-/// ARC-02 / D-02: typed facade over [SharedPreferences] routing ALL 13 keys.
+/// ARC-02 / D-02: typed facade over [SharedPreferences] routing ALL 14 keys.
 /// Each getter reproduces the EXACT null-fallback default of its original
 /// call site in main.dart so behavior is byte-for-byte preserved. Wraps an
 /// injected [SharedPreferences] so it is unit-testable with

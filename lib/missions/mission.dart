@@ -10,6 +10,7 @@ import 'package:flutter/widgets.dart';
 /// Contract copied verbatim from SPIKE 001 (the spike file is a throwaway
 /// planning artifact and never ships into the app).
 abstract class Mission {
-  String get title;
+  // HEALTH: dead `String get title` removed — never referenced (the host reads
+  // AppStrings.get('mission_*_title', ...) directly).
   Widget build(BuildContext context, VoidCallback onSuccess);
 }
