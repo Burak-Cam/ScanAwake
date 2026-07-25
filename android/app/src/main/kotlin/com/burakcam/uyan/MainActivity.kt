@@ -3,6 +3,7 @@ package com.burakcam.uyan
 import android.content.Context
 import android.media.AudioManager
 import android.os.Build
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -55,6 +56,28 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(true)
                     }
+                    // FIX 2026-07-26 (Phase 10 finding): nothing in this app kept the
+                    // screen awake while an alarm was being dismissed. With MIUI's
+                    // default 30s screen timeout, a mission that takes a while — the
+                    // water mission in particular, which the user reported as "baya
+                    // zor doldu" — can lose the foreground when the display sleeps.
+                    // Two consequences, both bad:
+                    //   1) the mission silently stalls (its camera/mic stop feeding),
+                    //   2) on Android 14+ the microphone is cut the moment the app
+                    //      leaves the foreground, because this app deliberately has
+                    //      NO microphone-typed foreground service (see AndroidManifest).
+                    // Holding FLAG_KEEP_SCREEN_ON for the lifetime of RingScreen keeps
+                    // the app in the foreground for the whole dismiss flow, which is
+                    // also simply correct UX: the alarm screen must not sleep while it
+                    // is asking the user to do something.
+                    "keepScreenOn" -> {
+                        setKeepScreenOn(true)
+                        result.success(true)
+                    }
+                    "releaseScreenOn" -> {
+                        setKeepScreenOn(false)
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -73,6 +96,22 @@ class MainActivity : FlutterActivity() {
             original
         } catch (_: Exception) {
             null
+        }
+    }
+
+    // Best-effort, like every other native helper here: a failure must never crash
+    // the app mid-alarm. Worst case on failure is the pre-existing behaviour (the
+    // screen may time out), never a trapped user.
+    private fun setKeepScreenOn(on: Boolean) {
+        try {
+            runOnUiThread {
+                if (on) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        } catch (_: Exception) {
         }
     }
 
