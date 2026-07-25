@@ -41,9 +41,20 @@ bool streakEligible(AlarmKind kind, String? lastScanDate, String today) =>
 ///
 /// Worked example (user spec): wake Mon then Wed (gap 2, Tue missed) => continues;
 /// wake Sun then Wed (gap 3, Mon+Tue missed) => resets to 1.
+/// Parse a 'yyyy-mm-dd' date-only string to a UTC-midnight [DateTime] so day-gap
+/// math is DST-immune. A local-midnight diff across a DST boundary measures 23h
+/// or 25h and `.inDays` then truncates → off-by-one streak bugs (HEALTH M-4):
+/// a real consecutive-day wake could measure gap 0 (streak fails to advance) or
+/// a real 3-day break could measure inDays 2 (broken streak silently continues).
+DateTime? _utcDay(String? s) {
+  if (s == null) return null;
+  final d = DateTime.tryParse(s);
+  return d == null ? null : DateTime.utc(d.year, d.month, d.day);
+}
+
 int nextStreak(int current, String? lastScanDate, String today) {
-  final last = lastScanDate == null ? null : DateTime.tryParse(lastScanDate);
-  final now = DateTime.tryParse(today);
+  final last = _utcDay(lastScanDate);
+  final now = _utcDay(today);
   if (last == null || now == null) return 1;
   final gap = now.difference(last).inDays;
   if (gap <= 0) return current;
@@ -59,8 +70,8 @@ int nextStreak(int current, String? lastScanDate, String today) {
 /// tokens are kept on a natural lapse — only a genuine cheat ([decideCheat]
 /// reset) wipes tokens (max deterrence).
 bool streakAlive(String? lastScanDate, String today) {
-  final last = lastScanDate == null ? null : DateTime.tryParse(lastScanDate);
-  final now = DateTime.tryParse(today);
+  final last = _utcDay(lastScanDate);
+  final now = _utcDay(today);
   if (last == null || now == null) return false;
   return now.difference(last).inDays <= 2;
 }

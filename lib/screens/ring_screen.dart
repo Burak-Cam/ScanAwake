@@ -691,13 +691,13 @@ class _RingScreenState extends State<RingScreen> {
                 },
               )
             else
-              const Center(
+              Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 20),
-                    Text("Starting Camera...", style: TextStyle(color: Colors.white))
+                    const CircularProgressIndicator(color: Colors.white),
+                    const SizedBox(height: 20),
+                    Text(AppStrings.get('camera_starting', widget.language), style: const TextStyle(color: Colors.white)),
                   ],
                 ),
               ),

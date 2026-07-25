@@ -21,8 +21,6 @@ class LumenMission implements Mission {
 
   const LumenMission({required this.language});
 
-  @override
-  String get title => AppStrings.get('mission_lumen_title', language);
 
   @override
   Widget build(BuildContext context, VoidCallback onSuccess) =>
@@ -142,14 +140,17 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
         await controller.setFocusMode(FocusMode.locked);
       } catch (_) {}
       if (!mounted || _finished) {
-        await controller.dispose();
+        // FIX (dark-preview-stage1-scanner): the locks are already applied at
+        // this point, so this abort MUST go through the unlocking teardown —
+        // a bare dispose() here leaked CONTROL_AE_LOCK into the next session.
+        await _teardownCamera(controller);
         return;
       }
       _cam = controller;
       await controller.startImageStream(_onFrame);
       if (!mounted || _finished) {
-        await controller.stopImageStream();
-        await controller.dispose();
+        // FIX (dark-preview-stage1-scanner): same — unlock before releasing.
+        await _teardownCamera(controller);
         _cam = null;
         return;
       }
@@ -186,14 +187,10 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
       final old = _cam;
       _cam = null;
       _streaming = false;
-      if (old != null) {
-        try {
-          await old.stopImageStream();
-        } catch (_) {}
-        try {
-          await old.dispose();
-        } catch (_) {}
-      }
+      // FIX (dark-preview-stage1-scanner): route the half-open controller
+      // through the shared teardown so its AE/AF locks are released too — a
+      // retry storm previously leaked a lock per aborted attempt.
+      await _teardownCamera(old);
       if (!mounted) return;
       await _initCamera();
     });
@@ -275,6 +272,9 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
   // from the previously unprotected fire-and-forget dispose below).
   static Future<void> _teardownCamera(CameraController? cam) async {
     if (cam == null) return;
+    // FIX (dark-preview-stage1-scanner, 2026-07-25): hand the camera back in
+    // AUTO before releasing it. MUST come first — see _releaseCameraLocks.
+    await _releaseCameraLocks(cam);
     // MIUI single-camera discipline: stop the stream FIRST (shortens the
     // native release window so the next camera open is less likely to race
     // teardown), THEN dispose.
@@ -283,6 +283,39 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
     } catch (_) {}
     try {
       await cam.dispose();
+    } catch (_) {}
+  }
+
+  // FIX (dark-preview-stage1-scanner, 2026-07-25): the AE/AF locks taken in
+  // _initCamera are sticky AT THE PROCESS LEVEL, not at this controller's.
+  // camera_android_camerax implements setExposureMode(locked) as
+  //   Camera2CameraControl.from(cameraControl)
+  //     .addCaptureRequestOptions({CaptureRequest.CONTROL_AE_LOCK: true})
+  // (android_camera_camerax.dart:826-848). Those CaptureRequestOptions live on
+  // the Camera2CameraControl bound to the CameraInternal owned by the
+  // ProcessCameraProvider SINGLETON — the very same singleton mobile_scanner
+  // binds to (MobileScanner.kt:263). They survive unbind AND a camera-device
+  // close, and CameraX RE-APPLIES them to every later session in this process.
+  // Device evidence (repro-260725/phase10_logcat.txt): the lock taken here at
+  // 20:18:10.326 was still in the sticky parameter set of the RingScreen
+  // barcode scanner's own session at 20:20:59.957 — 2m49s, one camera close and
+  // a different plugin later — pinning the dismiss scanner to this mission's
+  // (never-converged, dark-room) exposure. mobile_scanner never touches AE, so
+  // it has no way to undo this; the leak must be closed HERE.
+  // That is a core-value failure: an unreadable barcode = an alarm the user
+  // cannot dismiss. So ALWAYS restore auto before the camera is released.
+  // Ordering matters: run this while the stream is still live and the camera
+  // control still resolves — after stopImageStream()/dispose() the call would
+  // simply throw and the lock would leak anyway.
+  // Best-effort by design (mirrors the locking calls): an unsupported mode or
+  // an already-wedged camera just throws, and a teardown must never trap the
+  // user. Residual risk: if the camera is already dead the lock survives.
+  static Future<void> _releaseCameraLocks(CameraController cam) async {
+    try {
+      await cam.setExposureMode(ExposureMode.auto);
+    } catch (_) {}
+    try {
+      await cam.setFocusMode(FocusMode.auto);
     } catch (_) {}
   }
 

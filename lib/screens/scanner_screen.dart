@@ -93,17 +93,29 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     } catch (_) {}
   }
 
+  // HEALTH M-5: swallow a detached platform-channel future so a post-unmount
+  // rejection can never surface as an unhandled exception (Future<void> only).
+  void _detachFuture(Future<void> f) => f.then((_) {}, onError: (Object _) {});
+
   @override
   void dispose() {
     // MIUI/Redmi allows only one open camera at a time. Stop the camera FIRST to
     // shorten the native release window (so the next ScannerScreen/RingScreen
     // open is less likely to race the teardown), then dispose. dispose() cannot
-    // be async, so this stop() is best-effort but fired before the controller is
+    // be async, so these are best-effort but fired before the controller is
     // torn down.
     _retryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-    controller?.stop();
-    controller?.dispose();
+    // HEALTH M-5: null the field first, then detach each future. `stop()`/`dispose()`
+    // return platform-channel futures; an unawaited rejection AFTER unmount is the
+    // `releaseFlutterSurfaceTexture` unhandled-PlatformException class RingScreen was
+    // explicitly hardened against (WR-02) — ScannerScreen had the raw unguarded calls.
+    final c = controller;
+    controller = null;
+    if (c != null) {
+      _detachFuture(c.stop());
+      _detachFuture(c.dispose());
+    }
     super.dispose();
   }
 

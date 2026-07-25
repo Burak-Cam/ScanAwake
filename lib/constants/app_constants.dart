@@ -76,7 +76,7 @@ int accumulateHold(int heldMs, double avgY, int dtMs) => avgY >= kLumenThreshold
 /// reaches [kLumenHoldMs].
 bool lumenComplete(int heldMs) => heldMs >= kLumenHoldMs;
 
-/// MIS-02 [ASSUMED]: hue match tolerance in degrees (±20°). A sampled frame's
+/// MIS-02: hue match tolerance in degrees (±26°, device-calibrated). A sampled frame's
 /// hue must be within this circular distance of the target hue to count as a
 /// match. Device-calibrated under SC-4 (Plan 02 checkpoint); pinned by
 /// color_match_test.dart so calibration is a one-line const change + test

@@ -40,8 +40,6 @@ class WaterMission implements Mission {
 
   const WaterMission({required this.language});
 
-  @override
-  String get title => AppStrings.get('mission_water_title', language);
 
   @override
   Widget build(BuildContext context, VoidCallback onSuccess) =>
@@ -81,6 +79,9 @@ class _WaterViewState extends State<_WaterView>
   // in `finally`, so a denied/failed attempt leaves the grant button fully
   // re-tryable (D-08 gate behavior preserved).
   bool _micStarting = false;
+  // HEALTH M-1: ensures the recorder is stopped+disposed exactly once across the
+  // two teardown paths (_finish + dispose).
+  bool _audioTornDown = false;
 
   // YAMNet throttle (RESEARCH Pattern 2): _isBusy is the async re-entry guard
   // (skip while a run is conceptually in flight / a chunk is being processed);
@@ -212,13 +213,28 @@ class _WaterViewState extends State<_WaterView>
     // guarantee alignment, then decode little-endian PCM16 → float [-1, 1].
     final aligned = Uint8List.fromList(bytes);
     final i16 = aligned.buffer.asInt16List(0, aligned.lengthInBytes ~/ 2);
-    for (final s in i16) {
-      if (_filled < _kYamnetSamples) {
-        _waveform[_filled++] = s / 32768.0;
-      } else {
-        // slide: drop oldest, append newest. Cheap for our chunk sizes.
-        _waveform.setRange(0, _kYamnetSamples - 1, _waveform, 1);
-        _waveform[_kYamnetSamples - 1] = s / 32768.0;
+    int idx = 0;
+    // Fill phase: append into the not-yet-full buffer, one sample at a time.
+    while (_filled < _kYamnetSamples && idx < i16.length) {
+      _waveform[_filled++] = i16[idx++] / 32768.0;
+    }
+    // Slide phase (HEALTH H-2): the rest overflow a FULL buffer. Block-shift ONCE
+    // per chunk, not once PER SAMPLE — the old per-sample `setRange(0, N-1, .., 1)`
+    // was O(N × chunk) ≈ 15599 × ~2048 ≈ 32M float copies/chunk (~250M/s) on the
+    // UI isolate for the whole mission. Semantics are IDENTICAL: a sliding window
+    // keeping the newest N samples.
+    final remaining = i16.length - idx;
+    if (remaining >= _kYamnetSamples) {
+      // The chunk alone exceeds the window: keep only its last N samples.
+      final start = i16.length - _kYamnetSamples;
+      for (int i = 0; i < _kYamnetSamples; i++) {
+        _waveform[i] = i16[start + i] / 32768.0;
+      }
+    } else if (remaining > 0) {
+      // Shift left by `remaining`, then write the `remaining` newest samples.
+      _waveform.setRange(0, _kYamnetSamples - remaining, _waveform, remaining);
+      for (int i = 0; i < remaining; i++) {
+        _waveform[_kYamnetSamples - remaining + i] = i16[idx + i] / 32768.0;
       }
     }
   }
@@ -314,12 +330,20 @@ class _WaterViewState extends State<_WaterView>
         await sub.cancel();
       } catch (_) {}
     }
-    try {
-      await _recorder.stop();
-    } catch (_) {}
-    try {
-      await _recorder.dispose();
-    } catch (_) {}
+    // HEALTH M-1: tear the recorder down EXACTLY once. Both _finish (success) and
+    // dispose (unmount) call this on a successful water dismiss; `_recorder` is a
+    // non-nullable field (unlike the nulled sub/interpreter), so without this guard
+    // it was stopped+disposed twice — try/catch hid the crash, but the second call
+    // could even land first and dispose the recorder out from under _finish.
+    if (!_audioTornDown) {
+      _audioTornDown = true;
+      try {
+        await _recorder.stop();
+      } catch (_) {}
+      try {
+        await _recorder.dispose();
+      } catch (_) {}
+    }
     try {
       interpreter?.close();
     } catch (_) {}

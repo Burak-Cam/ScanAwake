@@ -18,9 +18,15 @@ class AppStrings {
     'scan_title': {'tr': 'Ürün Tara', 'en': 'Scan Item'},
     'flash_hint': {'tr': 'Karanlıktaysa flaşı aç 👆', 'en': 'Turn on flash if dark 👆'},
     'camera_starting': {'tr': 'Kamera başlatılıyor...', 'en': 'Starting camera...'},
+    // HEALTH i18n: dialog dismiss button (was hardcoded English "Got it!").
+    'got_it': {'tr': 'Anladım', 'en': 'Got it!'},
     'camera_retry': {'tr': 'Kamera açılamadı. Tekrar denemek için dokun.', 'en': 'Camera failed to open. Tap to retry.'},
     'item_exists': {'tr': 'Bu ürün zaten ekli!', 'en': 'Item already exists!'},
     'item_added': {'tr': 'Ürün Eklendi! ✅', 'en': 'Item Added! ✅'},
+    // HEALTH H-1: shown when the last dismissal barcode is removed while alarms are armed.
+    'barcodes_cleared_alarms_off': {'tr': 'Son barkod silindi — aktif alarmlar kapatıldı (okutacak barkod kalmadı).', 'en': 'Last barcode removed — active alarms turned off (nothing left to scan).'},
+    // HEALTH H-1: defensive — an alarm fired with no saved barcode; stopped instead of ringing forever.
+    'no_barcode_alarm_stopped': {'tr': 'Barkod yok — alarm durduruldu. Lütfen bir barkod ekle.', 'en': 'No barcode — alarm stopped. Please add a barcode.'},
     'add_item_first': {'tr': 'Önce barkod ekle!', 'en': 'Add an item first!'},
     'battery_title': {'tr': '⚠️ Önemli Uyarı', 'en': '⚠️ Important'},
     'battery_desc': {

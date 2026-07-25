@@ -491,19 +491,32 @@ class _HomeScreenState extends State<HomeScreen> {
             // already cover every real dismiss; nothing to do here.
             break;
         }
-
-        // Ring window is over (any dismiss path): stop watching for escapes and
-        // clear the transient flag so a clean dismiss leaves no stale signal.
-        // FIX (checkup-260711 WR-04): only when the watch is still THIS
-        // handler's. If a restarted ring's handler already installed a newer
-        // watch (generation bumped), a stale tail must neither cancel the
-        // active ring's fgbg subscription nor clear an escape flag that newer
-        // ring may have genuinely set. Single-alarm sequential dismisses have
-        // equal generations, so behavior there is byte-identical.
-        if (escapeWatchGen == _escapeWatchGen) {
-          await _stopEscapeWatch();
-          await prefs.setEscapeDetected(false);
+      } else {
+        // HEALTH H-1: the alarm fired with NO saved dismissal barcode (the user
+        // deleted the last barcode while this alarm stayed armed). Nothing can be
+        // scanned, so stop the native alarm instead of leaving it ringing forever,
+        // re-arm a repeating alarm to its next occurrence, and warn. The preventive
+        // guard in _removeBarcode should keep us out of this state; this is
+        // defense-in-depth.
+        await prefs.setRinging(false);
+        await Alarm.stop(alarmSettings.id);
+        await _rearmIfRepeating(index);
+        if (mounted) {
+          _showSnack(AppStrings.get('no_barcode_alarm_stopped', currentLang));
         }
+      }
+
+      // Ring window is over (ANY path — incl. the no-barcode branch above).
+      // HEALTH H-1: this teardown USED TO live inside the has-barcodes gate, so
+      // an empty-barcode fire leaked the fgbg escape watch and left is_ringing
+      // true — a later background flip then set escape_detected, and the next cold
+      // start read (wasRinging:true, escapeDetected:true) => a FALSE cheat reset
+      // that wiped the user's streak + tokens. Now it always runs.
+      // FIX (checkup-260711 WR-04): only when the watch is still THIS handler's
+      // (generation guard) — a restarted ring's newer watch must survive a stale tail.
+      if (escapeWatchGen == _escapeWatchGen) {
+        await _stopEscapeWatch();
+        await prefs.setEscapeDetected(false);
       }
       } // end for (alarmSettings in alarmSet.alarms)
     });
@@ -751,7 +764,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) => AlertDialog(
         title: Text(type == 'streak' ? AppStrings.get('streak_title', currentLang) : AppStrings.get('token_title', currentLang)),
         content: Text(type == 'streak' ? AppStrings.get('streak_desc', currentLang) : AppStrings.get('token_desc', currentLang)),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Got it!"))],
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.get('got_it', currentLang)))],
       ),
     );
   }
@@ -1255,6 +1268,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _removeBarcode(int index) async {
     final prefs = PrefsService(await SharedPreferences.getInstance());
+    // HEALTH H-1 (preventive): a saved barcode is the ONLY way to dismiss an
+    // alarm. Removing the LAST one while alarms are armed would leave them
+    // undismissable (ring forever + trip the escape-watch/cheat-reset trap). So
+    // when this removal empties the list, disarm any active alarms first and warn.
+    if (savedBarcodes.length <= 1 && alarms.any((a) => a.isActive)) {
+      for (final a in alarms) {
+        if (a.isActive) {
+          try {
+            await Alarm.stop(a.id);
+          } catch (_) {}
+        }
+      }
+      if (mounted) {
+        setState(() {
+          for (final a in alarms) {
+            a.isActive = false;
+          }
+        });
+      }
+      _saveAlarms();
+      if (mounted) {
+        _showSnack(AppStrings.get('barcodes_cleared_alarms_off', currentLang));
+      }
+    }
     setState(() => savedBarcodes.removeAt(index));
     await prefs.setTargetBarcodes(savedBarcodes);
   }

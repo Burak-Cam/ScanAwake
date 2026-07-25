@@ -31,8 +31,6 @@ class ColorMission implements Mission {
 
   const ColorMission({required this.language});
 
-  @override
-  String get title => AppStrings.get('mission_color_title', language);
 
   @override
   Widget build(BuildContext context, VoidCallback onSuccess) =>

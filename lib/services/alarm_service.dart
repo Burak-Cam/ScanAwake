@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
@@ -36,6 +37,12 @@ class AlarmGateway {
   /// as if no check existed (i.e. exactly the prior behavior) — NOT a
   /// regression. Real-device confirmation happens at the Task 3 checkpoint.
   Future<bool> canScheduleExact() async {
+    // HEALTH M-7: `SCHEDULE_EXACT_ALARM` is an Android-only permission. On iOS
+    // `Permission.scheduleExactAlarm.status` never reports `granted`, so the
+    // fail-safe below would block EVERY schedule on iOS. Short-circuit off
+    // Android so scheduling works if an iOS build is ever shipped (Android-first
+    // today, but this is a real platform trap).
+    if (!Platform.isAndroid) return true;
     try {
       return (await Permission.scheduleExactAlarm.status).isGranted;
     } catch (_) {
@@ -172,14 +179,22 @@ DateTime calculateAlarmDateTime(TimeOfDay time, List<int> repeatDays) {
 
   if (repeatDays.isEmpty) {
     if (target.isBefore(now)) {
-      return target.add(const Duration(days: 1));
+      // HEALTH M-3: rebuild from calendar components instead of adding a fixed
+      // 24h Duration. `DateTime.add(Duration(days:1))` adds 24 ABSOLUTE hours,
+      // so crossing a DST boundary shifts the wall-clock hour by ±1 (a 07:00
+      // alarm fires at 06:00/08:00). Component rebuild preserves the intended
+      // hour:minute and normalizes month/day overflow. TR is DST-free; this
+      // protects DST-observing (EN) locales.
+      return DateTime(target.year, target.month, target.day + 1, time.hour, time.minute);
     }
     return target;
   }
 
   while (true) {
     if (target.isBefore(now) || !repeatDays.contains(target.weekday)) {
-      target = target.add(const Duration(days: 1));
+      // HEALTH M-3: component rebuild (see above) so a repeating alarm keeps its
+      // exact wall-clock time across DST transitions and never drifts weekdays.
+      target = DateTime(target.year, target.month, target.day + 1, time.hour, time.minute);
     } else {
       return target;
     }
