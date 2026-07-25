@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
+import '../services/camera_handoff.dart';
 import 'mission.dart';
 
 /// MIS-02: the third concrete [Mission] — "Renk Bul" (Find the Color). A slot
@@ -442,7 +443,7 @@ class _ColorViewState extends State<_ColorView>
     }
     // Best-effort, exception-safe, NOT awaited: a camera-stack stall or a
     // teardown PlatformException must never reach (or delay) the exit chain.
-    unawaited(_teardownCamera(cam));
+    CameraHandoff.trackRelease(_teardownCamera(cam));
   }
 
   // FIX (mission-exit-teardown-crash): single guarded teardown used by BOTH
@@ -472,7 +473,7 @@ class _ColorViewState extends State<_ColorView>
     _cam = null;
     // FIX (mission-exit-teardown-crash): was an unprotected fire-and-forget
     // teardown; now detached + guarded (dispose() cannot be async).
-    unawaited(_teardownCamera(cam));
+    CameraHandoff.trackRelease(_teardownCamera(cam));
     super.dispose();
   }
 

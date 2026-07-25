@@ -15,6 +15,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
+import '../services/camera_handoff.dart';
 import 'mission.dart';
 
 /// MIS-03: the fourth concrete [Mission] — "Nesne Bul" (Find the Object). On open
@@ -492,7 +493,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
     }
     // Best-effort, exception-safe, NOT awaited: a camera-stack stall or a
     // teardown PlatformException must never reach (or delay) the exit chain.
-    unawaited(_teardownNative(cam, labeler));
+    CameraHandoff.trackRelease(_teardownNative(cam, labeler));
   }
 
   // FIX (mission-exit-teardown-crash): single guarded teardown used by BOTH
@@ -530,7 +531,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
     _imageLabeler = null;
     // FIX (mission-exit-teardown-crash): was an unprotected fire-and-forget
     // teardown; now detached + guarded (dispose() cannot be async).
-    unawaited(_teardownNative(cam, labeler));
+    CameraHandoff.trackRelease(_teardownNative(cam, labeler));
     super.dispose();
   }
 
