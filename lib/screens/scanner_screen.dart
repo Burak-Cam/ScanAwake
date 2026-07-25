@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../l10n/app_strings.dart';
+import '../services/camera_handoff.dart';
 
 class ScannerScreen extends StatefulWidget {
   final String language;
@@ -34,7 +35,14 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // FIX 2026-07-26 (silent camera death): same process-singleton hazard as
+      // RingScreen — a mission's detached camera teardown ends in
+      // processCameraProvider.unbindAll(), which would unbind this scanner's use
+      // cases too. Wait (bounded) for any in-flight release before binding.
+      // This surface is where the dark-preview symptom was FIRST reported (999.1).
+      await CameraHandoff.awaitRelease();
       if (!mounted) return;
       _initController();
       setState(() => isCameraReady = true);

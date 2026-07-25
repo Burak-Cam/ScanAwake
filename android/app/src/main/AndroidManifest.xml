@@ -44,11 +44,21 @@
          network, and capture ends when the mission ends. -->
     <uses-permission
         android:name="android.permission.RECORD_AUDIO"/>
-    <!-- MIS-04 (Phase 7): targetSdk 36 (>= 34) requires an explicit FGS-microphone
-         permission + foregroundServiceType when mic capture happens while a
-         foreground service runs (the alarm's mediaPlayback NotificationService). -->
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <!-- REMOVED 2026-07-26: FOREGROUND_SERVICE_MICROPHONE.
+         The original rationale ("mic capture happens while a foreground service
+         runs") did not hold: the mic is opened by the water mission from the
+         VISIBLE RingScreen Activity (water_mission.dart AudioRecorder.startStream),
+         never from a service. No service in this app declares the "microphone" FGS
+         type — the only block that did pointed at a non-existent class and has been
+         removed below. Declaring an FGS permission that nothing uses makes the Play
+         permission declaration inaccurate (Phase 11 POL-04).
+         Microphone therefore relies on the normal while-in-use model: it works while
+         the Activity is in the foreground. KEEP_SCREEN_ON (added to the activity
+         below) is what guarantees that during a mission. If background mic capture
+         is ever needed, a REAL microphone-typed foreground service must be added
+         together with this permission — not this permission alone. -->
+    <!-- RECORD_AUDIO above stays: it is the actual runtime permission the water
+         mission requests and uses (POL-04 = mic KEPT, code-verified). -->
     <!-- SEC-01: FLASHLIGHT removed — the torch is driven through mobile_scanner's
          camera2 path (CameraManager), which needs only CAMERA, not this legacy
          normal-level permission. -->
@@ -95,12 +105,20 @@
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false"
             android:stopWithTask="false"/>
-        <service
-            android:name="com.gdelataillade.alarm.services.NotificationService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback|microphone"
-            android:stopWithTask="false"/>
+        <!-- REMOVED 2026-07-26 (Phase 10 device session finding): this block declared
+             a service class that DOES NOT EXIST. alarm 5.1.5 ships
+             services/NotificationService.kt, but the class inside it is
+             `NotificationHandler(context)` — a plain helper, NOT a Service subclass
+             (verified in the pub cache). The real foreground service is
+             `com.gdelataillade.alarm.services.AlarmService : Service()`, which the
+             alarm package declares in its OWN manifest with
+             foregroundServiceType="mediaPlayback" and which hardcodes
+             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK in startForeground()
+             (AlarmService.kt:218-221).
+             Consequence: the "microphone" FGS type here was never applied to any
+             running service — it was inert config pointing at a phantom class.
+             Keeping it would keep the Play permission declaration dishonest
+             (see Phase 11 POL-04). -->
     </application>
     <queries>
         <intent>

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
+import '../services/camera_handoff.dart';
 import 'mission.dart';
 
 /// MIS-01 / D-04 / D-06: the first concrete [Mission] — "Lümen". The user must
@@ -261,7 +262,7 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
     }
     // Best-effort, exception-safe, NOT awaited: a camera-stack stall or a
     // teardown PlatformException must never reach (or delay) the exit chain.
-    unawaited(_teardownCamera(cam));
+    CameraHandoff.trackRelease(_teardownCamera(cam));
   }
 
   // FIX (mission-exit-teardown-crash): single guarded teardown used by BOTH
@@ -330,7 +331,7 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
     // `cam?.stopImageStream(); cam?.dispose();` — the source of the unhandled
     // PlatformException when the emergency pop unmounted this state mid-stall.
     // Now detached + guarded (dispose() cannot be async; best-effort is fine).
-    unawaited(_teardownCamera(cam));
+    CameraHandoff.trackRelease(_teardownCamera(cam));
     super.dispose();
   }
 

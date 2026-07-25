@@ -16,6 +16,7 @@ import '../missions/water_mission.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
 import '../services/alarm_volume_controller.dart';
+import '../services/camera_handoff.dart';
 import '../services/prefs_service.dart';
 import '../services/streak_service.dart';
 
@@ -141,6 +142,17 @@ class _RingScreenState extends State<RingScreen> {
   static const MethodChannel _keyguardChannel =
       MethodChannel('com.burakcam.uyan/keyguard');
 
+  // Best-effort screen-on toggle. Detached and swallowed on purpose: this is a
+  // comfort/robustness measure, never a precondition for dismissing the alarm.
+  // On a platform failure the pre-existing behaviour (screen may time out) stands.
+  static void _setKeepScreenOn(bool on) {
+    unawaited(
+      _keyguardChannel
+          .invokeMethod(on ? 'keepScreenOn' : 'releaseScreenOn')
+          .catchError((_) => null),
+    );
+  }
+
   // CYCLE 2 (device-verified): the alarm package flips AlarmRingingLiveData via
   // postValue(false) — which is ASYNCHRONOUS — so the observer's
   // setShowWhenLocked(false) runs on the main looper AFTER our synchronous
@@ -181,15 +193,34 @@ class _RingScreenState extends State<RingScreen> {
     isVibrationStopped = widget.startWithoutVibration;
     randomFact = AppStrings.getRandomFact(widget.language);
 
+    // FIX 2026-07-26 (Phase 10 device finding): keep the display awake for the
+    // WHOLE dismiss flow (Stage-1 barcode + Stage-2 mission). Nothing did this
+    // before, so MIUI's ~30s screen timeout could put the app in the background
+    // mid-mission — silently stalling it, and on Android 14+ cutting the water
+    // mission's microphone outright (this app has no microphone-typed foreground
+    // service; see AndroidManifest). Fire-and-forget: a failed platform call must
+    // never delay or break the ring screen.
+    _setKeepScreenOn(true);
+
     _emergencyTimer = Timer(const Duration(seconds: 60), () {
       if (mounted) setState(() => _showEmergencyButton = true);
     });
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _initController();
-        setState(() => isCameraReady = true);
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // FIX 2026-07-26 (silent camera death): a mission's camera teardown is
+      // deliberately DETACHED (PR #20 — a wedged teardown must never delay the
+      // exit). But camera_android_camerax's dispose() ends in
+      // processCameraProvider.unbindAll(), which unbinds EVERY use case in the
+      // process — including this scanner's, since both plugins share the same
+      // singleton. Binding while that teardown is still in flight gets the
+      // scanner silently unbound: clean close, no exception, errorBuilder never
+      // fires, _scheduleAutoRetry never runs, permanently black preview, alarm
+      // undismissable. Wait (bounded) for the release to land first.
+      await CameraHandoff.awaitRelease();
+      if (!mounted) return;
+      _initController();
+      setState(() => isCameraReady = true);
     });
   }
 
@@ -621,6 +652,9 @@ class _RingScreenState extends State<RingScreen> {
 
   @override
   void dispose() {
+    // Release the screen-on flag on EVERY exit path (success, snooze, restart,
+    // emergency stop, unmount) — dispose is the one funnel they all pass through.
+    _setKeepScreenOn(false);
     _emergencyTimer?.cancel();
     _retryTimer?.cancel();
     _missionVibrationTimer?.cancel(); // SC-4: stop the su-mission vibration.
