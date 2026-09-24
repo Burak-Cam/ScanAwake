@@ -141,4 +141,40 @@ void main() {
       }
     });
   });
+
+  // REGRESSION (2026-09-24): see kLumenMaxTickMs. The water mission is the most
+  // exposed: Android 14+ revokes a backgrounded app's MICROPHONE (while-in-use,
+  // measured on API 36 in 10-EMULATOR-SESSION-260924.md), so the record stream
+  // stops and resumes — and a ~3 s gap alone used to fill the whole 2500 ms bar.
+  group('tick bound (kWaterMaxTickMs) — huge-gap bypass', () {
+    test('a single huge-gap tick CANNOT complete the mission from zero', () {
+      final held = accumulateWaterHold(0, true, 30000);
+      expect(waterComplete(held), isFalse);
+      expect(held, kWaterMaxTickMs);
+    });
+
+    test('a single false-positive tick can NEVER complete it (doc invariant)', () {
+      expect(waterComplete(accumulateWaterHold(0, true, 999999)), isFalse);
+    });
+
+    test('two independent detections DO complete it', () {
+      int held = accumulateWaterHold(0, true, kWaterMaxTickMs);
+      held = accumulateWaterHold(held, true, kWaterMaxTickMs);
+      expect(waterComplete(held), isTrue);
+    });
+
+    test('a NEGATIVE dt (backwards clock step) never adds progress', () {
+      expect(accumulateWaterHold(0, true, -5000), 0);
+      expect(accumulateWaterHold(900, true, -5000), 900);
+    });
+
+    test('the bound does NOT bind at the throttled cadence', () {
+      expect(accumulateWaterHold(0, true, kWaterThrottleMs), kWaterThrottleMs);
+    });
+
+    test('kWaterMaxTickMs is 1500 and stays below kWaterHoldMs', () {
+      expect(kWaterMaxTickMs, 1500);
+      expect(kWaterMaxTickMs < kWaterHoldMs, isTrue);
+    });
+  });
 }

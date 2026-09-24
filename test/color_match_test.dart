@@ -126,4 +126,35 @@ void main() {
       }
     });
   });
+
+  // REGRESSION (2026-09-24): see kLumenMaxTickMs. dtMs is real elapsed time, so a
+  // gap in the frame stream used to be credited in full on the next matching
+  // frame. ColorMission only nulled _lastTick while the slot was SPINNING; a
+  // stall or a background->foreground cycle was still unbounded.
+  group('tick bound (kColorMaxTickMs) — huge-gap bypass', () {
+    // A solidly matching sample for the first palette hue (red).
+    const h = 0.0, s = 0.9, v = 0.9;
+    final target = kColorPaletteHues[0];
+
+    test('a single huge-gap tick CANNOT complete the mission from zero', () {
+      final held = accumulateColorHold(0, h, s, v, target, 30000);
+      expect(colorComplete(held), isFalse);
+      expect(held, kColorMaxTickMs);
+    });
+
+    test('a NEGATIVE dt (backwards clock step) never adds progress', () {
+      expect(accumulateColorHold(0, h, s, v, target, -5000), 0);
+      expect(accumulateColorHold(400, h, s, v, target, -5000), 400);
+    });
+
+    test('the bound does NOT bind at the real frame cadence (15-30 fps)', () {
+      expect(accumulateColorHold(0, h, s, v, target, 33), 33);
+      expect(accumulateColorHold(0, h, s, v, target, 66), 66);
+    });
+
+    test('kColorMaxTickMs is 500 and stays below kColorHoldMs', () {
+      expect(kColorMaxTickMs, 500);
+      expect(kColorMaxTickMs < kColorHoldMs, isTrue);
+    });
+  });
 }

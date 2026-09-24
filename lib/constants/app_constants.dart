@@ -62,15 +62,70 @@ const double kLumenThreshold = 140;
 /// in Plan 03. Pinned by lumen_hold_test.dart.
 const int kLumenHoldMs = 2500;
 
+/// TICK BOUND (all missions, 2026-09-24): the maximum wall-clock time a SINGLE
+/// tick may contribute to a progress bar.
+///
+/// WHY: every accumulator below is fed `dtMs = now - lastTick`, i.e. real
+/// elapsed time between two ticks. Any GAP in the frame/tick stream therefore
+/// used to be credited in full on the next matching tick — so one matching
+/// frame after a pause could fill the whole bar and complete a "sustained"
+/// mission instantly. Documented gap sources in this repo:
+///   * a 60 s MIUI camera stall (.planning/debug/lumen-camera-never-starts.md),
+///   * background -> foreground, where Android 14+ `while-in-use` revokes the
+///     camera/mic of a backgrounded app and the stream simply stops
+///     (measured on API 36, 10-EMULATOR-SESSION-260924.md),
+///   * no `didChangeAppLifecycleState` anywhere, so nothing pauses/reset on
+///     background in the first place.
+/// color_mission.dart only ever defended the SLOT-SPIN case (it nulls
+/// `_lastTick` there, with a comment naming this exact hazard); the general
+/// case was open and LumenMission had no defence at all.
+///
+/// This bound also restores an invariant the docs on [kObjectHoldMs] /
+/// [kWaterHoldMs] already CLAIM but could not hold: "a single false-positive
+/// tick can NEVER complete the mission". With an unbounded dt, one tick could.
+///
+/// Each value sits far above the mission's real cadence and far below an
+/// exploitable gap, so a slow device only progresses slower, never stalls.
+/// Every bound is also kept STRICTLY BELOW its mission's hold target, so a
+/// single tick can never complete a mission on its own.
+///
+/// The lower bound of 0 additionally absorbs a NEGATIVE dt from a backwards
+/// clock STEP (a manual clock change or an NTP step correction). Note this is
+/// NOT a DST concern: `DateTime.difference` is computed from
+/// microsecondsSinceEpoch, so a DST transition does not produce a negative
+/// delta (unlike the wall-clock date math the M-3/M-4 DST fixes dealt with).
+
+/// Lümen streams frames at ~15-30 fps (`ResolutionPreset.low`) => ~33-66 ms per
+/// tick. 500 ms is ~10x the typical tick.
+const int kLumenMaxTickMs = 500;
+
+/// Renk samples the same camera stream as Lümen => same cadence, same bound.
+const int kColorMaxTickMs = 500;
+
+/// Nesne is throttled to [kObjectThrottleMs] (400 ms); 800 ms is 2x that.
+/// MUST stay STRICTLY BELOW [kObjectHoldMs] (1000 ms), otherwise a single
+/// bounded tick could still complete the mission on its own and the
+/// "at least two independent detections" guarantee would remain broken.
+const int kObjectMaxTickMs = 800;
+
+/// Su is throttled to [kWaterThrottleMs] (750 ms); 1500 ms is 2x that.
+const int kWaterMaxTickMs = 1500;
+
 /// MIS-01 / D-02 / D-09: pure SUSTAINED + LEAKY hold accumulator. Adds [dtMs] to
 /// [heldMs] when the frame's [avgY] is at/above [kLumenThreshold]; otherwise
 /// DECAYS by half a tick ([dtMs] ~/ 2), clamped to [0, kLumenHoldMs] — a single
 /// below-threshold frame no longer wipes near-complete progress. Mirrors
 /// [accumulateWaterHold]: the SC-4 water finding (a transient miss must not
 /// hard-reset the bar) generalized to all progress-bar missions.
-int accumulateHold(int heldMs, double avgY, int dtMs) => avgY >= kLumenThreshold
-    ? heldMs + dtMs
-    : (heldMs - (dtMs ~/ 2)).clamp(0, kLumenHoldMs);
+///
+/// [dtMs] is bounded to `[0, kLumenMaxTickMs]` first — see [kLumenMaxTickMs] for
+/// why an unbounded tick let a single frame complete the mission.
+int accumulateHold(int heldMs, double avgY, int dtMs) {
+  final dt = dtMs.clamp(0, kLumenMaxTickMs);
+  return avgY >= kLumenThreshold
+      ? heldMs + dt
+      : (heldMs - (dt ~/ 2)).clamp(0, kLumenHoldMs);
+}
 
 /// MIS-01 / D-02: the Lümen mission is complete once accumulated [heldMs]
 /// reaches [kLumenHoldMs].
@@ -134,11 +189,14 @@ bool hsvMatches(double h, double s, double v, double targetHue) =>
 /// half a tick ([dtMs] ~/ 2), clamped to [0, kColorHoldMs] — a single
 /// non-matching frame no longer wipes near-complete progress (mirrors
 /// [accumulateHold] / [accumulateWaterHold]).
+/// [dtMs] is bounded to `[0, kColorMaxTickMs]` first — see [kLumenMaxTickMs].
 int accumulateColorHold(
-        int heldMs, double h, double s, double v, double targetHue, int dtMs) =>
-    hsvMatches(h, s, v, targetHue)
-        ? heldMs + dtMs
-        : (heldMs - (dtMs ~/ 2)).clamp(0, kColorHoldMs);
+    int heldMs, double h, double s, double v, double targetHue, int dtMs) {
+  final dt = dtMs.clamp(0, kColorMaxTickMs);
+  return hsvMatches(h, s, v, targetHue)
+      ? heldMs + dt
+      : (heldMs - (dt ~/ 2)).clamp(0, kColorHoldMs);
+}
 
 /// MIS-02: the color mission is complete once accumulated [heldMs] reaches
 /// [kColorHoldMs].
@@ -222,9 +280,16 @@ bool hasMatch(List<(String label, double confidence)> labels,
 /// ([dtMs] ~/ 2), clamped to [0, kObjectHoldMs] — a single non-matching
 /// throttled tick no longer wipes near-complete progress (mirrors
 /// [accumulateHold] / [accumulateColorHold] / [accumulateWaterHold]).
-int accumulateObjectHold(int heldMs, bool matched, int dtMs) => matched
-    ? heldMs + dtMs
-    : (heldMs - (dtMs ~/ 2)).clamp(0, kObjectHoldMs);
+/// [dtMs] is bounded to `[0, kObjectMaxTickMs]` first — see [kLumenMaxTickMs].
+/// This is what makes the "at least two independent throttled detections" claim
+/// on [kObjectHoldMs] actually hold: one tick can now credit at most
+/// [kObjectMaxTickMs], so a lone false-positive label can never complete it.
+int accumulateObjectHold(int heldMs, bool matched, int dtMs) {
+  final dt = dtMs.clamp(0, kObjectMaxTickMs);
+  return matched
+      ? heldMs + dt
+      : (heldMs - (dt ~/ 2)).clamp(0, kObjectHoldMs);
+}
 
 /// MIS-03: the object mission is complete once accumulated [heldMs] reaches
 /// [kObjectHoldMs].
@@ -307,9 +372,17 @@ bool hasWaterMatch(List<double> scores, Set<int> idx, double floor) =>
 /// twice at 2402/2500 ms). Half-rate decay lets a brief misclassification cost
 /// only one tick while sustained non-water still drains to 0 (real, mostly-
 /// continuous water nets positive and completes).
-int accumulateWaterHold(int heldMs, bool matched, int dtMs) => matched
-    ? heldMs + dtMs
-    : (heldMs - (dtMs ~/ 2)).clamp(0, kWaterHoldMs);
+/// [dtMs] is bounded to `[0, kWaterMaxTickMs]` first — see [kLumenMaxTickMs].
+/// This is what makes the "a single false-positive tick (alarm blip) can NEVER
+/// complete the mission" claim on [kWaterHoldMs] actually hold: with an
+/// unbounded dt, a mic stream gap (Android 14+ revokes the mic of a backgrounded
+/// app) followed by one matching tick used to fill the whole bar.
+int accumulateWaterHold(int heldMs, bool matched, int dtMs) {
+  final dt = dtMs.clamp(0, kWaterMaxTickMs);
+  return matched
+      ? heldMs + dt
+      : (heldMs - (dt ~/ 2)).clamp(0, kWaterHoldMs);
+}
 
 /// MIS-04: the water mission is complete once accumulated [heldMs] reaches
 /// [kWaterHoldMs].

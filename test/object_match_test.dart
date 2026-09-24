@@ -139,4 +139,41 @@ void main() {
       }
     });
   });
+
+  // REGRESSION (2026-09-24): see kLumenMaxTickMs. Before the bound, one throttled
+  // tick after a stream gap credited the whole gap — which silently broke the
+  // guarantee kObjectHoldMs's own doc claims ("at least two independent
+  // detections are always required; a single false-positive label can never
+  // complete the mission").
+  group('tick bound (kObjectMaxTickMs) — huge-gap bypass', () {
+    test('a single huge-gap tick CANNOT complete the mission from zero', () {
+      final held = accumulateObjectHold(0, true, 30000);
+      expect(objectComplete(held), isFalse);
+      expect(held, kObjectMaxTickMs);
+    });
+
+    test('a lone false-positive label can NEVER complete it (doc invariant)', () {
+      expect(objectComplete(accumulateObjectHold(0, true, 999999)), isFalse);
+    });
+
+    test('two independent detections DO complete it', () {
+      int held = accumulateObjectHold(0, true, kObjectMaxTickMs);
+      held = accumulateObjectHold(held, true, kObjectMaxTickMs);
+      expect(objectComplete(held), isTrue);
+    });
+
+    test('a NEGATIVE dt (backwards clock step) never adds progress', () {
+      expect(accumulateObjectHold(0, true, -5000), 0);
+      expect(accumulateObjectHold(600, true, -5000), 600);
+    });
+
+    test('the bound does NOT bind at the throttled cadence', () {
+      expect(accumulateObjectHold(0, true, kObjectThrottleMs), kObjectThrottleMs);
+    });
+
+    test('kObjectMaxTickMs is 800 and stays STRICTLY below kObjectHoldMs', () {
+      expect(kObjectMaxTickMs, 800);
+      expect(kObjectMaxTickMs < kObjectHoldMs, isTrue);
+    });
+  });
 }

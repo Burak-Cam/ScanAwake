@@ -59,13 +59,63 @@ void main() {
     });
 
     test('a below-threshold tick mid-sequence decays (not hard reset)', () {
+      // dt values stay within kLumenMaxTickMs so this exercises decay, not the
+      // tick bound (a 1000 ms tick would now be clamped to 500 — see the
+      // 'tick bound' group below).
       int held = 0;
-      held = accumulateHold(held, kLumenThreshold + 10, 1000); // 1000
-      held = accumulateHold(held, kLumenThreshold + 10, 1000); // 2000
-      expect(held, 2000);
-      held = accumulateHold(held, kLumenThreshold - 50, 500); // drop => 2000-250
-      expect(held, 1750);
+      held = accumulateHold(held, kLumenThreshold + 10, 500); // 500
+      held = accumulateHold(held, kLumenThreshold + 10, 500); // 1000
+      expect(held, 1000);
+      held = accumulateHold(held, kLumenThreshold - 50, 500); // drop => 1000-250
+      expect(held, 750);
       expect(lumenComplete(held), isFalse);
+    });
+  });
+
+  // REGRESSION (2026-09-24): dtMs is real elapsed wall-clock time between ticks,
+  // so ANY gap in the frame stream (60 s MIUI camera stall; background ->
+  // foreground where Android 14+ revokes a backgrounded app's camera) used to be
+  // credited in full on the next matching frame — one frame could complete a
+  // "sustained" mission. color_mission only ever defended the slot-spin case;
+  // Lümen had no defence at all.
+  group('tick bound (kLumenMaxTickMs) — huge-gap bypass', () {
+    test('a single huge-gap tick CANNOT complete the mission from zero', () {
+      // Pre-fix: accumulateHold(0, bright, 30000) == 30000 => complete.
+      expect(lumenComplete(accumulateHold(0, kLumenThreshold + 10, 30000)),
+          isFalse);
+    });
+
+    test('a huge dt credits at most kLumenMaxTickMs', () {
+      expect(accumulateHold(0, kLumenThreshold + 10, 30000), kLumenMaxTickMs);
+      expect(accumulateHold(0, kLumenThreshold + 10, 999999), kLumenMaxTickMs);
+    });
+
+    test('completion still needs several bounded ticks', () {
+      // ceil(2500 / 500) = 5 ticks minimum — genuinely sustained.
+      int held = 0, ticks = 0;
+      while (!lumenComplete(held)) {
+        held = accumulateHold(held, kLumenThreshold + 10, 30000);
+        ticks++;
+      }
+      expect(ticks, (kLumenHoldMs / kLumenMaxTickMs).ceil());
+      expect(ticks > 1, isTrue);
+    });
+
+    test('a NEGATIVE dt (backwards clock step) never adds progress', () {
+      expect(accumulateHold(0, kLumenThreshold + 10, -5000), 0);
+      expect(accumulateHold(800, kLumenThreshold + 10, -5000), 800);
+      expect(accumulateHold(800, kLumenThreshold - 10, -5000), 800);
+    });
+
+    test('the bound does NOT bind at the real frame cadence (15-30 fps)', () {
+      // ~33-66 ms per frame — far below the bound, so normal play is unchanged.
+      expect(accumulateHold(0, kLumenThreshold + 10, 33), 33);
+      expect(accumulateHold(0, kLumenThreshold + 10, 66), 66);
+    });
+
+    test('decay is bounded too (a gap cannot wipe the bar in one tick)', () {
+      expect(accumulateHold(2000, kLumenThreshold - 10, 30000),
+          2000 - kLumenMaxTickMs ~/ 2);
     });
   });
 
@@ -75,6 +125,12 @@ void main() {
     });
     test('kLumenHoldMs is 2500 (~2.5s sustained)', () {
       expect(kLumenHoldMs, 2500);
+    });
+    test('kLumenMaxTickMs is 500 (~10x the 15-30 fps frame cadence)', () {
+      expect(kLumenMaxTickMs, 500);
+    });
+    test('kLumenMaxTickMs < kLumenHoldMs (one tick can never complete it)', () {
+      expect(kLumenMaxTickMs < kLumenHoldMs, isTrue);
     });
   });
 
