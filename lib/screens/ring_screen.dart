@@ -821,31 +821,42 @@ class _RingScreenState extends State<RingScreen> {
                 ),
               ),
 
+            // FIX (emulator session 2026-10-10): was pinned top-left (top: 50),
+            // exactly where Android draws the alarm's heads-up notification
+            // while the app is in the foreground — the pill sat hidden under
+            // it until the notification was swiped away. Bottom-centre, below
+            // the restart button, is never covered.
             if (_showEmergencyButton)
               Positioned(
-                top: 50, left: 20,
-                child: GestureDetector(
-                  onTap: _handleEmergencyStop,
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: Colors.redAccent, width: 2)
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
-                        const SizedBox(width: 5),
-                        Text(
-                          AppStrings.get('emergency_btn', widget.language),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                bottom: 40, left: 0, right: 0,
+                child: Center(child: _emergencyPill()),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // The emergency-stop pill, shared by Stage 1 and the Stage-2 mission header.
+  Widget _emergencyPill() {
+    return GestureDetector(
+      onTap: _handleEmergencyStop,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: Colors.redAccent, width: 2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
+            const SizedBox(width: 5),
+            Text(
+              AppStrings.get('emergency_btn', widget.language),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+            ),
           ],
         ),
       ),
@@ -863,56 +874,55 @@ class _RingScreenState extends State<RingScreen> {
       canPop: false,
       child: Scaffold(
         backgroundColor: Colors.indigo,
-        body: Stack(
+        // FIX (emulator session 2026-10-10): the sound-lowered status and the
+        // emergency pill used to float at top: 50 OVER the mission, landing on
+        // top of every mission's own SafeArea title card (Su / Nesne / Renk:
+        // "STAGE 2: FIND THE WATER SOUND" was unreadable under both). They now
+        // live in a header strip, and the mission gets the space below it.
+        body: Column(
           children: [
-            // D-06 headless: the Mission renders its own UI (no CameraPreview)
-            // on this indigo surface.
-            if (_mission != null) _mission!.build(context, _onMissionSuccess),
-
-            // D-08: sound-lowered status (volume_down) — the alarm package audio
-            // is stopped and only the ~50% soft loop plays; vibration is halted.
-            Positioned(
-              top: 50, right: 20,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.volume_down, color: Colors.white70, size: 22),
-                  const SizedBox(width: 6),
-                  Text(
-                    AppStrings.get('mission_sound_lowered', widget.language),
-                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-
-            // D-13: emergency stop stays reachable in mission mode (not success,
-            // awards no streak). The same kEmergencyStopDelaySec gate applies.
-            if (_showEmergencyButton)
-              Positioned(
-                top: 50, left: 20,
-                child: GestureDetector(
-                  onTap: _handleEmergencyStop,
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: Colors.redAccent, width: 2),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
-                        const SizedBox(width: 5),
-                        Text(
-                          AppStrings.get('emergency_btn', widget.language),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                        ),
-                      ],
-                    ),
+            SafeArea(
+              bottom: false,
+              child: SizedBox(
+                height: 56,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      // D-13: emergency stop stays reachable in mission mode
+                      // (not success, awards no streak). The same
+                      // kEmergencyStopDelaySec gate applies.
+                      if (_showEmergencyButton) _emergencyPill(),
+                      const Spacer(),
+                      // D-08: sound-lowered status (volume_down) — the alarm
+                      // package audio is stopped and only the ~50% soft loop
+                      // plays; vibration is halted.
+                      const Icon(Icons.volume_down, color: Colors.white70, size: 22),
+                      const SizedBox(width: 6),
+                      Text(
+                        AppStrings.get('mission_sound_lowered', widget.language),
+                        style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600, fontSize: 12),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            ),
+            // The header above already consumed the status-bar inset, so strip
+            // it here — otherwise each mission's own SafeArea would add it twice.
+            Expanded(
+              child: MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                child: Stack(
+                  children: [
+                    // D-06 headless: the Mission renders its own UI on this
+                    // indigo surface.
+                    if (_mission != null) _mission!.build(context, _onMissionSuccess),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),

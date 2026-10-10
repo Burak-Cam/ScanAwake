@@ -139,6 +139,7 @@ class AppStrings {
     'mission_color_guide': {'tr': 'BU RENKTE BİR NESNE GÖSTER', 'en': 'SHOW AN OBJECT OF THIS COLOR'},
     'mission_color_hold': {'tr': 'NEREDEYSE TAMAM, SABIT TUT!', 'en': 'ALMOST THERE, HOLD STEADY!'},
     'mission_color_name': {'tr': 'Rengi Bul', 'en': 'Find Color'},
+    'mission_color_live': {'tr': 'Kamera', 'en': 'Camera'},
     'mission_color_reroll': {'tr': 'Yeniden Çevir', 'en': 'Reroll'},
     'color_red': {'tr': 'Kırmızı', 'en': 'Red'},
     'color_orange': {'tr': 'Turuncu', 'en': 'Orange'},
