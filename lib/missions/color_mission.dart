@@ -574,7 +574,7 @@ class _ColorViewState extends State<_ColorView>
                             label: targetName, color: targetColor, lang: lang),
                         const SizedBox(width: 24),
                         _swatch(
-                          label: AppStrings.get('mission_color_name', lang),
+                          label: AppStrings.get('mission_color_live', lang),
                           color: _liveColor ?? Colors.white12,
                           lang: lang,
                           isLive: true,

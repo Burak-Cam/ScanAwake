@@ -159,6 +159,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       _checkBatteryOptimization();
     });
+    // FIX (emulator session 2026-10-10): a post-frame callback only runs when a
+    // frame is actually rendered. By the time the awaits above finish, the
+    // first frame has usually already been drawn and nothing else is pending,
+    // so the onboarding tour / streak-save / battery dialog sat invisible until
+    // the user happened to touch the screen (reproduced on API 36: the
+    // streak-save dialog appeared only after a tap). Request a frame so the
+    // callback fires now.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   // STREAK-SAVE: on cold start, if the streak broke from inactivity (2+ missed
