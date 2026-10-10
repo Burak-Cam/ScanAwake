@@ -1,9 +1,13 @@
 package com.burakcam.uyan
 
+import android.app.AppOpsManager
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.lifecycle.Observer
 import com.gdelataillade.alarm.services.AlarmRingingLiveData
@@ -145,6 +149,18 @@ class MainActivity : FlutterActivity() {
                         releaseLockscreenIfIdle()
                         result.success(true)
                     }
+                    // F-2 (CR-03 follow-up): raw exact-alarm app-op state. See
+                    // exactAlarmOpDenied() for why canScheduleExactAlarms() alone
+                    // is not enough on Android 12.
+                    "exactAlarmOpDenied" -> {
+                        result.success(exactAlarmOpDenied())
+                    }
+                    // F-1 (CR-03 follow-up): open the "Alarms & reminders" page
+                    // for this app directly. false = could not open (caller falls
+                    // back to the generic app settings page).
+                    "openExactAlarmSettings" -> {
+                        result.success(openExactAlarmSettings())
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -201,6 +217,62 @@ class MainActivity : FlutterActivity() {
             setShowWhenLocked(false)
             setTurnScreenOn(false)
         } catch (_: Exception) {
+        }
+    }
+
+    // F-2 (CR-03 follow-up, device evidence 2026-10-10, Redmi Note 9S /
+    // Android 12): an app on the battery-optimization allowlist is EXEMPT from
+    // SCHEDULE_EXACT_ALARM, so switching "Alarms & reminders" off cancels
+    // nothing and canScheduleExactAlarms() stays true (dumpsys alarm:
+    // exactAllowReason=allow-listed). If the exemption goes away later, the
+    // pending alarm cannot start its foreground service and drops silently
+    // (ForegroundServiceStartNotAllowedException). Read the RAW app-op so Dart
+    // can warn about that "one setting away from silence" state.
+    // - SDK < 31: no such permission -> false.
+    // - SDK >= 33: the manifest declares USE_EXACT_ALARM, granted at install and
+    //   not user-revocable -> the state cannot occur -> false.
+    // - 31..32: denied unless MODE_ALLOWED or MODE_DEFAULT (AlarmManagerService
+    //   on S treats MODE_DEFAULT as granted for an app that declares the
+    //   permission). The Settings app writes the UID mode, which
+    //   unsafeCheckOpNoThrow evaluates first (device: "Uid mode:
+    //   SCHEDULE_EXACT_ALARM: deny"). Literal op string on purpose: the OPSTR
+    //   constant may be hidden on API 31.
+    // Best-effort: any failure -> false, which is exactly today's behavior.
+    private fun exactAlarmOpDenied(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return false
+        return try {
+            val appOps = getSystemService(AppOpsManager::class.java) ?: return false
+            val mode = appOps.unsafeCheckOpNoThrow(
+                "android:schedule_exact_alarm",
+                applicationInfo.uid,
+                packageName
+            )
+            mode != AppOpsManager.MODE_ALLOWED && mode != AppOpsManager.MODE_DEFAULT
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    // F-1 (CR-03 follow-up): open this app's "Alarms & reminders" page directly
+    // (device-verified to be the right page on MIUI). permission_handler's
+    // Permission.scheduleExactAlarm.request() is NOT used: it skips the request
+    // when the status already reads GRANTED, which is exactly the F-2 state
+    // (battery exemption), so it would open nothing. packageName is the
+    // applicationId -> correct target. Started from the activity, so no
+    // NEW_TASK flag. Any failure (incl. ActivityNotFoundException) -> false.
+    private fun openExactAlarmSettings(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        return try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 

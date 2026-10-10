@@ -3,12 +3,18 @@ import 'dart:io' show Platform;
 
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
 import 'prefs_service.dart';
+
+/// The app's existing native channel (MainActivity). The name is shared with
+/// the lock-screen / volume / keep-screen-on helpers ON PURPOSE — do not
+/// rename it and do not open a second channel; add methods instead.
+const MethodChannel _nativeChannel = MethodChannel('com.burakcam.uyan/keyguard');
 
 /// TST-02 / RESEARCH A2: a thin injectable seam over the static `Alarm` API.
 /// This is the ONLY place that touches `Alarm.set` / `Alarm.stop`, so the
@@ -51,6 +57,40 @@ class AlarmGateway {
       // shows the redirect dialog instead of an optimistic silent set.
       return false;
     }
+  }
+
+  /// F-2 (CR-03 follow-up): the RAW exact-alarm app-op state on Android 12
+  /// (API 31-32). A battery-exempt app keeps [canScheduleExact] == true even
+  /// with the permission switched off; this reports that "explicitly denied"
+  /// state so the UI can warn before the exemption disappears and the alarm
+  /// drops silently. Best-effort: off Android, outside API 31-32 or on any
+  /// error it returns false ("not denied") = exactly today's behavior.
+  /// [scheduleAlarmFn] never calls this, so the funnel gate is unchanged.
+  Future<bool> exactAlarmOpDenied() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return await _nativeChannel.invokeMethod<bool>('exactAlarmOpDenied') ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+/// F-1 (CR-03 follow-up): open this app's "Alarms & reminders" settings page
+/// directly (ACTION_REQUEST_SCHEDULE_EXACT_ALARM + package: URI, native).
+/// Returns false when it could not (non-Android, pre-Android 12, error) so the
+/// caller can fall back to `openAppSettings()`. permission_handler's
+/// `Permission.scheduleExactAlarm.request()` is deliberately not used: it
+/// skips the request when the status already reads granted — which is the F-2
+/// battery-exemption case — and would open nothing.
+Future<bool> openExactAlarmSettings() async {
+  if (!Platform.isAndroid) return false;
+  try {
+    return await _nativeChannel.invokeMethod<bool>('openExactAlarmSettings') ??
+        false;
+  } catch (_) {
+    return false;
   }
 }
 
