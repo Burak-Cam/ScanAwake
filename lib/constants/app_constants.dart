@@ -40,6 +40,14 @@ const int kCameraRestartCooldownMs = 2500;
 /// the existing backoff retry (lumen/color/object_mission.dart).
 const int kCameraFrameWatchdogMs = 2000;
 
+/// DECISION (review 2026-10-10): seconds from the start of a ring until the
+/// emergency-stop pill appears (was a hard-coded 60). 60 s of alarm is easy to
+/// sit out in bed, which made the emergency stop the cheapest way around the
+/// barcode. 120 s keeps a genuine escape hatch for a broken camera (Stage 1 also
+/// has the restart button for that) while making "wait it out" a real cost.
+/// Pinned by emergency_policy_test.dart.
+const int kEmergencyStopDelaySec = 120;
+
 /// D-01: the maximum number of dismissal barcodes a user may register
 /// (CLAUDE.md "barcode CRUD max 3"). Both `_HomeScreenState` barcode guards
 /// (length >= [kMaxBarcodes] / length < [kMaxBarcodes]) reference this.
@@ -270,7 +278,6 @@ const int kObjectThrottleMs = 400;
 const Map<String, Set<String>> kObjectTargets = {
   'mug': {'espresso', 'coffee mug', 'cup'}, // bardak/kupa
   'bottle': {'water bottle', 'pop bottle', 'beer bottle', 'wine bottle'}, // şişe
-  'pillow': {'pillow'}, // yastık
   'fruit': {
     'banana', 'orange', 'lemon', 'pineapple', 'strawberry', 'fig',
     'pomegranate', 'Granny Smith', // muz/elma/portakal... (meyve genel)
@@ -284,6 +291,11 @@ const Map<String, Set<String>> kObjectTargets = {
   'backpack': {'backpack'}, // sırt çantası
   'keyboard': {'computer keyboard'}, // klavye
 };
+
+// DECISION (review 2026-10-10): 'pillow' (yastık) was REMOVED. Stage 2 runs
+// AFTER the barcode scan, and a pillow is the one target guaranteed to be within
+// reach in bed — scan the barcode, walk back, show the pillow, done (and the
+// unlimited reroll made it pickable on demand). Pinned by emergency_policy_test.dart.
 
 /// MIS-03: CONCEPT AGGREGATION — sums the confidences of ALL returned labels that
 /// belong to [accepted] (case-insensitive) and matches iff the SUM is `>= floor`.
