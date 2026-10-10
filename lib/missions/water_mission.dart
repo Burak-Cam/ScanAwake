@@ -386,7 +386,7 @@ class _WaterViewState extends State<_WaterView>
     }
 
     final pct = (_progress * 100).round();
-    final nearDone = _progress >= 0.75;
+    final nearDone = _progress >= kMissionNearDone;
 
     // Indigo Stage-2 surface (04-UI-SPEC). No camera preview — the D-10 ripple
     // animation gives the "listening" feel. Still offline (T-07-04).
