@@ -113,6 +113,11 @@ class AppStrings {
     'app_version': {'tr': 'v2.1.0 (Beta)', 'en': 'v2.1.0 (Beta)'},
     // RLS-04 / D-03: exact-alarm permission redirect dialog (TR/EN parity).
     'exact_alarm_title': {'tr': '⏰ İzin Gerekli', 'en': '⏰ Permission Required'},
+    'exact_alarm_revoked_desc': {
+      'tr': '"Alarm ve hatırlatıcı ayarlama" izni KAPALI.\n\nBu yüzden Android kurulu alarmlarını iptal etti — şu an listede aktif görünseler de ÇALMAYACAKLAR.\n\nİzni açtığında alarmların otomatik olarak yeniden kurulur.',
+      'en': 'The "Alarms & reminders" permission is OFF.\n\nAndroid has therefore cancelled your alarms — even though they look active here, they WILL NOT RING.\n\nOnce you turn the permission back on, your alarms are re-armed automatically.'
+    },
+    'exact_alarm_restored': {'tr': '✅ İzin açıldı — alarmların yeniden kuruldu', 'en': '✅ Permission granted — your alarms are re-armed'},
     'exact_alarm_desc': {
       'tr': 'Alarmın tam zamanında ve güvenilir şekilde çalabilmesi için '
             '"Alarm ve hatırlatıcı ayarlama" (kesin alarm) iznine ihtiyacımız var.\n\n'

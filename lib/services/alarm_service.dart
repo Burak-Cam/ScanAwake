@@ -200,3 +200,30 @@ DateTime calculateAlarmDateTime(TimeOfDay time, List<int> repeatDays) {
     }
   }
 }
+
+/// CR-03 follow-up (2026-10-10, Android 12 emulator): what to do about the
+/// exact-alarm permission when the app comes to the foreground.
+enum ExactAlarmAction { none, warn, rearm }
+
+/// Revoking "Alarms & reminders" makes Android CANCEL every exact alarm this
+/// app set (measured: dumpsys alarm went 1 -> 0, reason
+/// exact_alarm_permission_revoked) while the app's list still showed the alarm
+/// as ACTIVE — a silent no-ring, the worst core-value failure. Re-granting did
+/// not restore it until a cold restart. Pure decision so it is unit-pinned:
+/// - permission missing + an active alarm -> [ExactAlarmAction.warn]
+///   (the user must know their alarm will not ring);
+/// - permission back after we saw it missing + an active alarm + nothing
+///   ringing -> [ExactAlarmAction.rearm] (re-schedule; never while ringing,
+///   because Alarm.set on a ringing id would stop that alarm);
+/// - otherwise nothing.
+ExactAlarmAction decideExactAlarmAction({
+  required bool granted,
+  required bool wasDenied,
+  required bool hasActive,
+  required bool ringing,
+}) {
+  if (!hasActive) return ExactAlarmAction.none;
+  if (!granted) return ExactAlarmAction.warn;
+  if (wasDenied && !ringing) return ExactAlarmAction.rearm;
+  return ExactAlarmAction.none;
+}
