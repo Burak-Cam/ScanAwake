@@ -131,6 +131,35 @@ int accumulateHold(int heldMs, double avgY, int dtMs) {
 /// reaches [kLumenHoldMs].
 bool lumenComplete(int heldMs) => heldMs >= kLumenHoldMs;
 
+/// PERF (review 2026-10-10): the progress fraction (0..1) at which every mission
+/// UI switches to its "hold steady" nudge. Was a bare `0.75` literal in each
+/// mission's build(); single-sourced here so [progressUiChanged] agrees with it.
+const double kMissionNearDone = 0.75;
+
+/// PERF (review 2026-10-10): the camera missions used to call setState on EVERY
+/// frame (15-30 fps) even though the visible output only changes when the
+/// rounded percentage or the near-done nudge changes. Returns true iff going
+/// from the [shown] progress to [next] changes anything the user can see.
+/// Pure — the hold accumulation itself still runs on every frame; only the
+/// rebuild is skipped.
+bool progressUiChanged(double shown, double next) =>
+    (shown * 100).round() != (next * 100).round() ||
+    (shown >= kMissionNearDone) != (next >= kMissionNearDone);
+
+/// PERF (review 2026-10-10): minimum gap between UI rebuilds for the Renk
+/// mission, whose live swatch changes on every frame. ~15 fps is smooth to the
+/// eye and halves-to-quarters the rebuild load on the Redmi Note 9S.
+const int kColorUiMinIntervalMs = 66;
+
+/// PERF (review 2026-10-10): true iff at least [minMs] have passed since the
+/// [last] UI rebuild (or there was none yet). A backwards clock step (negative
+/// gap) also refreshes, so the UI can never freeze on a clock change.
+bool uiRefreshDue(DateTime? last, DateTime now, int minMs) {
+  if (last == null) return true;
+  final gap = now.difference(last).inMilliseconds;
+  return gap < 0 || gap >= minMs;
+}
+
 /// MIS-02: hue match tolerance in degrees (±26°, device-calibrated). A sampled frame's
 /// hue must be within this circular distance of the target hue to count as a
 /// match. Device-calibrated under SC-4 (Plan 02 checkpoint); pinned by

@@ -184,16 +184,29 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
   // create the local-model labeler. Best-effort: on any failure the labeler stays
   // null and _onFrame simply never matches (the alarm keeps ringing — core value
   // preserved, never crashes).
+  //
+  // FIX (review 2026-10-10): the copy is now ATOMIC. It used to write the 17.7 MB
+  // model straight to the final path and only ever check `exists()`, so a
+  // process kill mid-copy (LMK was observed killing apps on the Redmi during
+  // Phase 10) left a TRUNCATED file that every later launch accepted — the
+  // labeler then failed forever and Nesne could never be completed on that
+  // install (emergency stop the only exit). Writing to a temp file and renaming
+  // it into place means the final path either holds the whole model or nothing.
+  // NOTE: the cache is keyed by file name only — if the bundled model ever
+  // changes, bump [_kModelCacheName] or existing installs keep the old model.
+  static const String _kModelCacheName = 'object_labeler.tflite';
+
   Future<String> _copyAssetModel() async {
     final dir = await getApplicationSupportDirectory();
-    final file = File('${dir.path}/object_labeler.tflite');
-    if (!await file.exists()) {
-      final data = await rootBundle.load('assets/ml/object_labeler.tflite');
-      await file.writeAsBytes(
-        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-        flush: true,
-      );
-    }
+    final file = File('${dir.path}/$_kModelCacheName');
+    if (await file.exists() && await file.length() > 0) return file.path;
+    final data = await rootBundle.load('assets/ml/object_labeler.tflite');
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsBytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
+    await tmp.rename(file.path);
     return file.path;
   }
 
@@ -552,7 +565,7 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
     }
 
     final pct = (_progress * 100).round();
-    final nearDone = _progress >= 0.75;
+    final nearDone = _progress >= kMissionNearDone;
     final targetName = AppStrings.get('object_$_targetKey', lang);
     // "Algılanan: <bestLabel> NN%" live readout (parallels ColorMission's live
     // swatch). When nothing has been detected yet, show an em-dash.

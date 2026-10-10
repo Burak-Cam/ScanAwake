@@ -83,6 +83,9 @@ class _ColorViewState extends State<_ColorView>
 
   // The live sampled-color swatch fill (null until the first frame is sampled).
   Color? _liveColor;
+  // PERF (review 2026-10-10): wall-clock time of the last per-frame UI rebuild
+  // (see uiRefreshDue in _onFrame).
+  DateTime? _lastUiAt;
 
   // Auto-retry backoff for transient camera-acquire failures (release race on
   // the single-camera device). Mirrors lumen_mission lines 63-81.
@@ -335,7 +338,14 @@ class _ColorViewState extends State<_ColorView>
       return;
     }
 
-    if (!mounted) return;
+    // PERF (review 2026-10-10): the live swatch changes every frame, so cap the
+    // rebuild rate at ~15 fps instead of rebuilding the whole preview Stack at
+    // the camera's 15-30 fps. _heldMs above still accumulates on EVERY frame;
+    // only the repaint is throttled.
+    if (!mounted || !uiRefreshDue(_lastUiAt, now, kColorUiMinIntervalMs)) {
+      return;
+    }
+    _lastUiAt = now;
     setState(() {
       _progress = progress;
       _liveColor = color;
@@ -494,7 +504,7 @@ class _ColorViewState extends State<_ColorView>
     }
 
     final pct = (_progress * 100).round();
-    final nearDone = _progress >= 0.75;
+    final nearDone = _progress >= kMissionNearDone;
     final targetHue = kColorPaletteHues[_targetIndex];
     final targetColor = HSVColor.fromAHSV(1, targetHue, 1, 1).toColor();
     final targetName = AppStrings.get(_kColorNameKeys[_targetIndex], lang);

@@ -230,7 +230,9 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
       return;
     }
 
-    if (!mounted) return;
+    // PERF (review 2026-10-10): rebuild only when the visible percent / nudge
+    // changes — not on every frame. _heldMs above still updates per frame.
+    if (!mounted || !progressUiChanged(_progress, progress)) return;
     setState(() {
       _progress = progress;
     });
@@ -339,7 +341,7 @@ class _LumenViewState extends State<_LumenView> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final lang = widget.language;
     final pct = (_progress * 100).round();
-    final nearDone = _progress >= 0.75;
+    final nearDone = _progress >= kMissionNearDone;
 
     // D-06 headless: NO CameraPreview is mounted — the camera streams frames in
     // the background only. The indigo Scaffold is owned by RingScreen (Plan 03);
