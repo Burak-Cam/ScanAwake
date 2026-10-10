@@ -378,11 +378,32 @@ const int kWaterThrottleMs = 750;
 /// while the ducked-alarm baseline fires NONE of them (grouped 0.00). Hiss /
 /// Steam / Snake (shower spray) were deliberately EXCLUDED — they also fire on
 /// non-water sounds and would erode the false-positive guard.
+///
+/// EXTENDED (2026-10-10, device finding + offline evidence): on the Redmi a
+/// FULLY open tap peaked at only ~40% on the 4-class set and never filled the
+/// bar. Offline runs of this exact model show why: real running/pouring water
+/// puts most of its probability on LIQUID classes the old set ignored —
+/// Liquid ~0.35, Drip ~0.36, Pour/Fill ~0.14 vs the counted Water ~0.31. Adding
+/// them took pouring water from a 32% to an 88% window hit rate (fill 12 s ->
+/// 3 s) and a toilet flush from never to 3 s. Every added class scored ~0
+/// (<= 0.07) on pink/white noise, vacuum, engine, wind, washing machine,
+/// snoring and breathing, so the fan guard is unchanged (noise still NEVER
+/// fills). Waterfall / Stream / Hiss / Steam / Rain / Ocean / Waves stay OUT:
+/// loud pink noise alone scores Waterfall 0.71. Scripts:
+/// .planning/quick/261010-kns-*/ (yam.py, sim.py) + scratch cand.py/sim2.py.
 const Set<int> kWaterClassIndices = {
   282, // Water
   364, // Water tap, faucet
   365, // Sink (filling or washing)
   366, // Bathtub (filling or washing)
+  368, // Toilet flush
+  438, // Liquid
+  439, // Splash, splatter
+  442, // Drip
+  443, // Pour
+  444, // Trickle, dribble
+  445, // Gush
+  446, // Fill (with liquid)
 };
 
 /// MIS-04 / D-05: CONCEPT AGGREGATION — sums ONLY the scores at the indices in
