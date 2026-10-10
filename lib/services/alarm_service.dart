@@ -3,12 +3,18 @@ import 'dart:io' show Platform;
 
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
 import 'prefs_service.dart';
+
+/// The app's existing native channel (MainActivity). The name is shared with
+/// the lock-screen / volume / keep-screen-on helpers ON PURPOSE — do not
+/// rename it and do not open a second channel; add methods instead.
+const MethodChannel _nativeChannel = MethodChannel('com.burakcam.uyan/keyguard');
 
 /// TST-02 / RESEARCH A2: a thin injectable seam over the static `Alarm` API.
 /// This is the ONLY place that touches `Alarm.set` / `Alarm.stop`, so the
@@ -51,6 +57,40 @@ class AlarmGateway {
       // shows the redirect dialog instead of an optimistic silent set.
       return false;
     }
+  }
+
+  /// F-2 (CR-03 follow-up): the RAW exact-alarm app-op state on Android 12
+  /// (API 31-32). A battery-exempt app keeps [canScheduleExact] == true even
+  /// with the permission switched off; this reports that "explicitly denied"
+  /// state so the UI can warn before the exemption disappears and the alarm
+  /// drops silently. Best-effort: off Android, outside API 31-32 or on any
+  /// error it returns false ("not denied") = exactly today's behavior.
+  /// [scheduleAlarmFn] never calls this, so the funnel gate is unchanged.
+  Future<bool> exactAlarmOpDenied() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return await _nativeChannel.invokeMethod<bool>('exactAlarmOpDenied') ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+/// F-1 (CR-03 follow-up): open this app's "Alarms & reminders" settings page
+/// directly (ACTION_REQUEST_SCHEDULE_EXACT_ALARM + package: URI, native).
+/// Returns false when it could not (non-Android, pre-Android 12, error) so the
+/// caller can fall back to `openAppSettings()`. permission_handler's
+/// `Permission.scheduleExactAlarm.request()` is deliberately not used: it
+/// skips the request when the status already reads granted — which is the F-2
+/// battery-exemption case — and would open nothing.
+Future<bool> openExactAlarmSettings() async {
+  if (!Platform.isAndroid) return false;
+  try {
+    return await _nativeChannel.invokeMethod<bool>('openExactAlarmSettings') ??
+        false;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -115,6 +155,25 @@ Future<bool> scheduleAlarmFn(
   );
   await gateway.set(alarmSettings);
   return true;
+}
+
+/// F-3 (CR-03 follow-up): set the text of the plugin's "app was killed"
+/// warning notification to the app language. The NotificationOnKillService is
+/// now declared in the manifest, so the warning actually fires — without this
+/// a TR user would get the plugin's English default (TR/EN parity).
+/// Best-effort: the kill warning is a hint, not on the alarm-setting path, so
+/// any error is swallowed. Plugin limitation: if the service is already
+/// running, the new text takes effect on the next `Alarm.set`. NOT called from
+/// [scheduleAlarmFn] (funnel and its gateway mocks stay untouched).
+Future<void> applyKillWarningText(String lang) async {
+  try {
+    await Alarm.setWarningNotificationOnKill(
+      AppStrings.get('kill_warning_title', lang),
+      AppStrings.get('kill_warning_body', lang),
+    );
+  } catch (_) {
+    // Best-effort — never let the kill-warning text break startup.
+  }
 }
 
 /// FIX (checkup-260711 WR-03): the pure, unit-testable decode of a fired
@@ -203,7 +262,7 @@ DateTime calculateAlarmDateTime(TimeOfDay time, List<int> repeatDays) {
 
 /// CR-03 follow-up (2026-10-10, Android 12 emulator): what to do about the
 /// exact-alarm permission when the app comes to the foreground.
-enum ExactAlarmAction { none, warn, rearm }
+enum ExactAlarmAction { none, warn, warnExempt, rearm }
 
 /// Revoking "Alarms & reminders" makes Android CANCEL every exact alarm this
 /// app set (measured: dumpsys alarm went 1 -> 0, reason
@@ -215,15 +274,31 @@ enum ExactAlarmAction { none, warn, rearm }
 /// - permission back after we saw it missing + an active alarm + nothing
 ///   ringing -> [ExactAlarmAction.rearm] (re-schedule; never while ringing,
 ///   because Alarm.set on a ringing id would stop that alarm);
+/// - raw permission switched off but still effective + an active alarm +
+///   nothing ringing -> [ExactAlarmAction.warnExempt] (see F-2 below);
 /// - otherwise nothing.
+///
+/// F-2 (2026-10-10, Redmi Note 9S / Android 12): an app on the battery
+/// optimization allowlist (deviceidle) is EXEMPT from SCHEDULE_EXACT_ALARM.
+/// Switching the permission off then cancels nothing and
+/// canScheduleExactAlarms() keeps returning true (dumpsys alarm:
+/// exactAllowReason=allow-listed). If the exemption is later removed (by the
+/// user or the OS), the pending alarm cannot start its foreground service and
+/// drops SILENTLY (device evidence: ForegroundServiceStartNotAllowedException).
+/// [rawDenied] = the raw app-op is explicitly denied. Re-arming wins over the
+/// exempt warning (the warning surfaces on the next foreground check), and
+/// nothing is shown while an alarm is ringing. [rawDenied] defaults to false,
+/// which is exactly the pre-F-2 behavior.
 ExactAlarmAction decideExactAlarmAction({
   required bool granted,
   required bool wasDenied,
   required bool hasActive,
   required bool ringing,
+  bool rawDenied = false,
 }) {
   if (!hasActive) return ExactAlarmAction.none;
   if (!granted) return ExactAlarmAction.warn;
   if (wasDenied && !ringing) return ExactAlarmAction.rearm;
+  if (rawDenied && !ringing) return ExactAlarmAction.warnExempt;
   return ExactAlarmAction.none;
 }

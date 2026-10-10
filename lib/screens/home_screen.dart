@@ -641,23 +641,33 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final granted = await defaultAlarmGateway.canScheduleExact();
       final ringing = await Alarm.isRinging();
+      // F-2: only ask for the raw app-op when the permission looks granted
+      // (an effective denial is already handled by `warn`).
+      final rawDenied =
+          granted && await defaultAlarmGateway.exactAlarmOpDenied();
       if (!mounted) return;
       final action = decideExactAlarmAction(
         granted: granted,
         wasDenied: _exactWasDenied,
         hasActive: alarms.any((a) => a.isActive),
         ringing: ringing,
+        rawDenied: rawDenied,
       );
       if (!granted) _exactWasDenied = true;
       switch (action) {
-        case ExactAlarmAction.warn:
+        // F-2: the battery-exemption warning shares the revoked warning's
+        // 5 s debounce; only the description differs.
+        case ExactAlarmAction.warn || ExactAlarmAction.warnExempt:
           final last = _exactWarnedAt;
           if (last != null &&
               DateTime.now().difference(last) < const Duration(seconds: 5)) {
             break;
           }
           _exactWarnedAt = DateTime.now();
-          await _showExactAlarmDialog(descKey: 'exact_alarm_revoked_desc');
+          await _showExactAlarmDialog(
+              descKey: action == ExactAlarmAction.warnExempt
+                  ? 'exact_alarm_exempt_desc'
+                  : 'exact_alarm_revoked_desc');
           _exactWarnedAt = DateTime.now();
         case ExactAlarmAction.rearm:
           var allOk = true;
@@ -688,6 +698,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // F-1 (CR-03 follow-up): "Open Settings" now opens this app's "Alarms &
+  // reminders" page directly (native ACTION_REQUEST_SCHEDULE_EXACT_ALARM) and
+  // falls back to the generic app settings page only if that fails. MIUI users
+  // could not find the switch from the app-info page. permission_handler's
+  // request() is not used: it skips the request when the permission already
+  // reads granted (the F-2 battery-exemption case) and would open nothing.
+  // Coming back from Settings re-runs _checkExactAlarmHealth via onResume.
   Future<void> _showExactAlarmDialog({String descKey = 'exact_alarm_desc'}) async {
     await showDialog(
       context: context,
@@ -701,7 +718,11 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(AppStrings.get('btn_close', currentLang), style: const TextStyle(color: Colors.grey)),
           ),
           TextButton(
-            onPressed: () async { if (context.mounted) Navigator.pop(context); await openAppSettings(); },
+            onPressed: () async {
+              if (context.mounted) Navigator.pop(context);
+              final opened = await openExactAlarmSettings();
+              if (!opened) await openAppSettings();
+            },
             child: Text(AppStrings.get('btn_open_settings', currentLang), style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
           ),
         ],
