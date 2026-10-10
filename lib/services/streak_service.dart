@@ -83,3 +83,22 @@ const int kStreakSaveCost = 2;
 
 /// True if the user has enough snooze tokens to rescue a broken streak.
 bool canSaveStreak(int tokens) => tokens >= kStreakSaveCost;
+
+/// DECISION (review 2026-10-10): does an EMERGENCY STOP break the streak?
+///
+/// The emergency stop was the cheapest way to skip the whole point of the app:
+/// wait it out, tap, alarm gone — no barcode, no penalty. Worse, with the 1-day
+/// grace in [nextStreak] an emergency every other morning kept a streak alive
+/// FOREVER. So an emergency that skips the barcode on a real wake (or its
+/// snooze re-fire) now resets the streak.
+///
+/// Deliberately NOT penalised:
+/// - [AlarmKind.test]: a test ring is never a wake-up.
+/// - [barcodeScanned]: the user already got up and scanned — the core value is
+///   met. Emergency in Stage 2 is the escape hatch for a mission that cannot be
+///   completed (dead camera/mic, a hard water mission), so it stays penalty-free
+///   (it still awards no streak day).
+///
+/// Snooze tokens are untouched — only a genuine cheat ([decideCheat]) wipes them.
+bool emergencyBreaksStreak(AlarmKind kind, {required bool barcodeScanned}) =>
+    kind != AlarmKind.test && !barcodeScanned;

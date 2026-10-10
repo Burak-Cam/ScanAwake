@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vibration/vibration.dart';
 
+import '../constants/app_constants.dart';
 import '../l10n/app_strings.dart';
 import '../missions/color_mission.dart';
 import '../missions/lumen_mission.dart';
@@ -103,7 +104,7 @@ class _RingScreenState extends State<RingScreen> {
   // scan to dismiss the alarm = core-value failure. If the camera fails to
   // acquire (e.g. the user just used another camera app, or a release race on a
   // single-camera MIUI device), self-heal by restarting the controller a few
-  // times before falling back to the user-facing message + 60s emergency stop.
+  // times before falling back to the user-facing message + delayed emergency stop.
   int _retryCount = 0;
   static const int _maxRetries = 5;
   Timer? _retryTimer;
@@ -202,7 +203,7 @@ class _RingScreenState extends State<RingScreen> {
     // never delay or break the ring screen.
     _setKeepScreenOn(true);
 
-    _emergencyTimer = Timer(const Duration(seconds: 60), () {
+    _emergencyTimer = Timer(const Duration(seconds: kEmergencyStopDelaySec), () {
       if (mounted) setState(() => _showEmergencyButton = true);
     });
 
@@ -250,7 +251,7 @@ class _RingScreenState extends State<RingScreen> {
 
   // Self-heal a transient camera-acquire failure on the dismiss path. Retries
   // more times than ScannerScreen (5 vs 3) because being unable to dismiss the
-  // alarm is the worst-case core-value failure; the 60s emergency-stop button is
+  // alarm is the worst-case core-value failure; the delayed (kEmergencyStopDelaySec) emergency-stop button is
   // the final backstop if every retry fails.
   void _scheduleAutoRetry() {
     if (_retryCount >= _maxRetries) return;
@@ -303,8 +304,20 @@ class _RingScreenState extends State<RingScreen> {
     if (_missionDone) return;
     if (isLocked && widget.missionType == MissionType.none) return;
 
+    // DECISION (review 2026-10-10): read BEFORE this handler sets isLocked
+    // below — at this point isLocked is true only if the barcode was scanned
+    // (the mission path keeps it true for the whole Stage 2).
+    final bool streakBroken = emergencyBreaksStreak(
+      widget.alarmKind,
+      barcodeScanned: isLocked,
+    );
+
     final prefs = PrefsService(await SharedPreferences.getInstance());
     await prefs.setRinging(false);
+    // Skipping the barcode on a real wake breaks the streak (tokens kept).
+    // DETACHED like every other award write here: the prefs cache updates
+    // synchronously, and the exit must never wait on a wedged platform thread.
+    if (streakBroken) _detach(prefs.setUserStreak(0));
 
     setState(() => isLocked = true);
     await Alarm.stop(widget.alarmId);
@@ -342,7 +355,11 @@ class _RingScreenState extends State<RingScreen> {
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("⚠️ ${AppStrings.get('alarm_cancelled', widget.language)}")),
+      SnackBar(
+        content: Text(streakBroken
+            ? "⚠️ ${AppStrings.get('alarm_cancelled_streak_lost', widget.language)}"
+            : "⚠️ ${AppStrings.get('alarm_cancelled', widget.language)}"),
+      ),
     );
   }
 
@@ -700,7 +717,7 @@ class _RingScreenState extends State<RingScreen> {
                 // If the camera pipeline fails, auto-retry acquiring it (a stuck
                 // camera here means the user cannot dismiss the alarm) and show a
                 // clear message instead of a silent black screen. The user still
-                // has the 60s emergency-stop fallback if every retry fails.
+                // has the delayed emergency-stop fallback if every retry fails.
                 errorBuilder: (context, error, child) {
                   _scheduleAutoRetry();
                   return Center(
@@ -840,7 +857,7 @@ class _RingScreenState extends State<RingScreen> {
   // stopped by Alarm.stop; no new vibration loop) and hosts the Mission body
   // INSTEAD of the scanner. The snooze button is gone (D-14 — naturally, since
   // isLocked is true post-scan and this layout omits it). The emergency pill
-  // (D-13) stays available; its 60s timer already runs from initState.
+  // (D-13) stays available; its kEmergencyStopDelaySec timer already runs from initState.
   Widget _buildMissionStage(BuildContext context) {
     return PopScope(
       canPop: false,
@@ -870,7 +887,7 @@ class _RingScreenState extends State<RingScreen> {
             ),
 
             // D-13: emergency stop stays reachable in mission mode (not success,
-            // awards no streak). The same 60s gate applies.
+            // awards no streak). The same kEmergencyStopDelaySec gate applies.
             if (_showEmergencyButton)
               Positioned(
                 top: 50, left: 20,

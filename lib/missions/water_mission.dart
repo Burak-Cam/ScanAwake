@@ -181,8 +181,22 @@ class _WaterViewState extends State<_WaterView>
           encoder: AudioEncoder.pcm16bits,
           sampleRate: 16000, // YAMNet's 16kHz mono — no resample needed
           numChannels: 1,
-          echoCancel: true, // SC-4 alarm-bleed mitigation (device-dependent)
-          noiseSuppress: true,
+          // DECISION (review 2026-10-10): both OFF. record_android applies
+          // these as real Android effects (NoiseSuppressor /
+          // AcousticEchoCanceler on the capture session, PCMReader.kt). NS is
+          // built to remove steady broadband noise — which is exactly what a
+          // running tap sounds like — so it attenuated the very signal we
+          // classify. AEC had nothing to cancel: the su mission plays NO
+          // audio (vibration only, see ring_screen._startMissionVibration).
+          // Offline YAMNet evidence (this model, kWaterConfidence/HoldMs
+          // unchanged): loud close water fills in ~6.8 s, the same water at
+          // 1/5 level NEVER fills — i.e. "baya zor doldu" is a signal-LEVEL
+          // problem, not a threshold one. Loud pink noise (fan proxy) still
+          // never fills at the unchanged 0.70 floor, so dropping NS does not
+          // open a fan bypass; LOWERING the floor would (0.5-0.6 let it pass
+          // in 9-23 s) — which is why the floor stays. Device-unverified.
+          echoCancel: false,
+          noiseSuppress: false,
           androidConfig: AndroidRecordConfig(
             // Least music-style processing; some OEMs apply AEC here (SC-4).
             audioSource: AndroidAudioSource.voiceRecognition,

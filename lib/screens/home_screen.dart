@@ -485,6 +485,10 @@ class _HomeScreenState extends State<HomeScreen> {
            await prefs.setRinging(false);
            final emergencyRearmed = await _rearmIfRepeating(index);
            if (!emergencyRearmed && mounted) await _showExactAlarmDialog();
+           // DECISION (review 2026-10-10): a Stage-1 emergency on a real wake
+           // resets the streak inside RingScreen — reload so the flame counter
+           // on this screen is not left showing the old value.
+           _loadPreferences();
             break;
           default:
             // Non-RingResult / null pop (no dismiss action). Re-arm paths above
