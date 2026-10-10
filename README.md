@@ -27,18 +27,20 @@ This keeps you awake and moving instead of dismissing-and-dozing.
 * **Object recognition (AI)** — Show a common household item (cup, plate, cutlery…); recognized on-device with a bundled ImageNet (EfficientNet-Lite0) TFLite classifier + concept grouping.
 * **Water sound** — Run a tap; detected on-device with YAMNet audio classification. (During this task the alarm uses looping **vibration** instead of a soft audio loop, because the mic's audio focus would mute the loop.)
 
-All five wake-up tasks are **live (v2.0)** and device-verified. Each alarm can be assigned its own task (or **none**, which behaves like the classic v1 scan-to-stop). Every progress mission uses a *leaky* hold bar (a brief miss decays it rather than hard-resetting).
+All four wake-up tasks are **live** and verified on a real device in the minified (R8) release build. Each alarm can be assigned its own task (or **none**, which behaves like the classic v1 scan-to-stop). Every progress mission uses a *leaky* hold bar (a brief miss decays it rather than hard-resetting).
 
 ## 🔥 Gamification
 
 * **Streak** — a "fire" streak that grows each genuine wake-up, with a **1-day grace** (a single missed day is forgiven; two missed days break it). Anti-cheat: a *real* escape (backgrounding the app while it rings) resets streak **and** tokens for maximum deterrence; a crash, OEM kill, or reboot never punishes an honest streak. Test/snooze dismissals never earn a streak.
 * **Snooze tokens** — a limited number of snoozes. Snoozing re-fires the same alarm **5 minutes** later, carrying the same wake-up task (so snooze can't be used to skip the mission).
+* **Emergency stop** — always reachable, but only after **120 seconds** of ringing. Using it before scanning the barcode resets the streak; using it during the mission stage keeps the streak.
 
 ## 🚀 Key features
 
 * **Barcode/QR dismissal** — up to 3 saved dismissal codes, any format.
 * **Fault-tolerant camera** — a custom "restart sequence" and single-camera release handling keep the camera reliable even on aggressive OEMs (Xiaomi/MIUI), where camera/vibration hardware contention is common.
-* **Reliable lock-screen alarm** — full-screen intent, `showWhenLocked` / `turnScreenOn`, and lock-screen continuity *through the two-stage hand-off* (the mission stays visible over the keyguard, no unlock required).
+* **Reliable lock-screen alarm** — full-screen intent, `showWhenLocked` / `turnScreenOn`, and lock-screen continuity *through the two-stage hand-off* (the mission stays visible over the keyguard, no unlock required, no PIN prompt over the ringing alarm). When no alarm is ringing, the app never shows over the keyguard.
+* **Exact-alarm guard** — every alarm goes through one scheduling funnel that refuses to set an alarm without the exact-alarm permission. If the permission is revoked later, the app warns that alarms **will not ring** and opens the *Alarms & reminders* page directly. Once the permission is back, it re-arms the alarms. On Android 12 it also warns when alarms only work because of the battery-optimization exemption.
 * **Flexible scheduling** — one-shot and repeating (daily / weekdays / custom days), in-place editing.
 * **Ringtones** — 9 built-in sounds plus a custom audio file, with preview.
 * **TR/EN localization** and an OLED-friendly dark mode.
@@ -69,7 +71,8 @@ The codebase is modular — `constants / models / services / screens / l10n / mi
 * `AlarmGateway` + `scheduleAlarmFn` — the single funnel for **all** scheduling (re-arm correctness, exact-alarm permission gate). Every dismiss path (success / snooze / restart / emergency) re-arms a repeating alarm and carries its wake-up task.
 * Pluggable `Mission` contract — `RingScreen` renders the task after a successful scan; missions return success/failure.
 * Hand-written `AlarmEntity` JSON; gamification + anti-cheat + streak-grace live in pure, unit-tested helpers.
-* **177 tests**, `flutter analyze` clean, CI gate + branch protection on `main`.
+* **257 tests**, `flutter analyze` clean, CI gate + branch protection on `main`.
+* Release builds are minified with R8 (with ML keep-rules), target SDK 36 and are 16 KB page-size aligned.
 
 ## ⚙️ Setup
 
@@ -85,10 +88,12 @@ flutter run        # or: flutter run -d <deviceId>
 * `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` — fire on time.
 * `USE_FULL_SCREEN_INTENT` + `showWhenLocked` / `turnScreenOn` + `WAKE_LOCK` — show the ringing/mission UI over the lock screen.
 * `CAMERA` — barcode scanning and the camera-based tasks (Lümen / Color / Object).
-* `RECORD_AUDIO` + foreground-service `microphone` — only during the Water-sound task; audio is classified on-device and never stored or transmitted.
-* `RECEIVE_BOOT_COMPLETED`, `VIBRATE`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`.
+* `RECORD_AUDIO` — only during the Water-sound task, from the visible alarm screen. Audio is classified on-device and never stored or transmitted.
+* `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_MEDIA_PLAYBACK` — the ringing alarm's audio service.
+* `RECEIVE_BOOT_COMPLETED`, `VIBRATE`, `POST_NOTIFICATIONS`.
+* No `INTERNET` permission: network and telemetry permissions merged in by ML libraries are stripped from the manifest.
 
-> **Xiaomi / MIUI note:** for alarms to fire reliably from a locked screen or after reboot, also grant *Autostart* and *Show on lock screen* in MIUI app settings, and exempt the app from battery optimization.
+> **Xiaomi / MIUI note:** for alarms to fire reliably from a locked screen or after reboot, also grant *Autostart* and *Show on lock screen* in MIUI app settings, and exempt the app from battery optimization. MIUI force-kills apps swiped from recents, so the plugin's "your alarms may not ring" warning cannot appear there; on stock Android it does.
 
 ## 🤝 Contributing
 
@@ -102,4 +107,4 @@ packages) remain under their own licenses.
 
 ---
 **Developer:** Burak Çam
-**Status:** v2.0 (two-stage wake) shipped — all five wake-up tasks live and device-verified; now in Play Store preparation.
+**Status:** v2.1.0 — the minified, signed release build passed device regression on a Redmi Note 9S (Android 12 / MIUI) and an Android 16 emulator. Play Store submission is in preparation.
