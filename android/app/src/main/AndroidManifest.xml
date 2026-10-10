@@ -105,6 +105,19 @@
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false"
             android:stopWithTask="false"/>
+        <!-- F-3 (CR-03 follow-up): alarm 5.1.5 does NOT declare this service in
+             its own manifest; its INSTALL-ANDROID.md (Step 4) asks the app to.
+             It was missing since v1, so warningNotificationOnKill never fired
+             (logcat "Unable to start service ... not found", Phase 10,
+             2026-10-10). exported=false: only this process may start it.
+             No foregroundServiceType (it never calls startForeground), no
+             stopWithTask (onTaskRemoved needs the default false), and no new
+             permission (it posts with the existing notification permission).
+             R8: AGP/aapt2 generates keep rules for manifest components, so
+             proguard-rules.pro is unchanged. -->
+        <service
+            android:name="com.gdelataillade.alarm.services.NotificationOnKillService"
+            android:exported="false"/>
         <!-- REMOVED 2026-07-26 (Phase 10 device session finding): this block declared
              a service class that DOES NOT EXIST. alarm 5.1.5 ships
              services/NotificationService.kt, but the class inside it is

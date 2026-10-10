@@ -7,6 +7,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'l10n/app_strings.dart';
+import 'services/alarm_service.dart' show applyKillWarningText;
 import 'services/prefs_service.dart';
 import 'screens/home_screen.dart';
 
@@ -79,12 +80,15 @@ class _ScanAwakeAppState extends State<ScanAwakeApp> {
 
       _currentRingtone = prefs.ringtonePath;
     });
+    // F-3: localize the plugin's kill-warning notification (best-effort).
+    applyKillWarningText(_locale.languageCode);
   }
 
   void setLanguage(String langCode) async {
     final prefs = PrefsService(await SharedPreferences.getInstance());
     await prefs.setAppLang(langCode);
     setState(() => _locale = Locale(langCode));
+    applyKillWarningText(langCode);
   }
 
   void toggleTheme(bool isDark) async {

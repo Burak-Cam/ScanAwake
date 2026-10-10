@@ -157,6 +157,25 @@ Future<bool> scheduleAlarmFn(
   return true;
 }
 
+/// F-3 (CR-03 follow-up): set the text of the plugin's "app was killed"
+/// warning notification to the app language. The NotificationOnKillService is
+/// now declared in the manifest, so the warning actually fires — without this
+/// a TR user would get the plugin's English default (TR/EN parity).
+/// Best-effort: the kill warning is a hint, not on the alarm-setting path, so
+/// any error is swallowed. Plugin limitation: if the service is already
+/// running, the new text takes effect on the next `Alarm.set`. NOT called from
+/// [scheduleAlarmFn] (funnel and its gateway mocks stay untouched).
+Future<void> applyKillWarningText(String lang) async {
+  try {
+    await Alarm.setWarningNotificationOnKill(
+      AppStrings.get('kill_warning_title', lang),
+      AppStrings.get('kill_warning_body', lang),
+    );
+  } catch (_) {
+    // Best-effort — never let the kill-warning text break startup.
+  }
+}
+
 /// FIX (checkup-260711 WR-03): the pure, unit-testable decode of a fired
 /// alarm's payload — extracted VERBATIM from home_screen's ring-listener
 /// inline block so the restart re-fire can carry the decoded kind (and so the
