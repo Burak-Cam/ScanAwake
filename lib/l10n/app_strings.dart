@@ -173,8 +173,12 @@ class AppStrings {
     // water_match_test.dart.
     'mission_water_title': {'tr': '2. AŞAMA: SU SESİNİ BUL', 'en': 'STAGE 2: FIND THE WATER SOUND'},
     'mission_water_guide': {
-      'tr': 'Musluğu aç, telefonu sese yaklaştır',
-      'en': 'Turn on the tap, bring the phone close to the sound'
+      'tr': 'Musluğu ORTA seviyede aç (sonuna kadar değil), telefonu ~30 cm yakına tut',
+      'en': 'Turn the tap on MEDIUM (not full blast), hold the phone ~30 cm away'
+    },
+    'mission_water_too_strong': {
+      'tr': 'Su çok sert akıyor — musluğu biraz kıs',
+      'en': 'Water is too forceful — turn the tap down a bit'
     },
     'mission_water_hold': {
       'tr': 'NEREDEYSE TAMAM, DEVAM ET!',

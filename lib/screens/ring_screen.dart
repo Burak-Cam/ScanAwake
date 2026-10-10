@@ -538,7 +538,16 @@ class _RingScreenState extends State<RingScreen> {
     // in nearly every ~0.975s inference window). Use a softer, sparser pulse —
     // 450ms at amplitude 160 every 1.6s — so ~1.15s of each cycle is a quiet
     // window for clean YAMNet capture, while the pulse stays a felt nudge.
+    final diagStart = DateTime.now();
     void buzz() {
+      // DIAGNOSTIC ONLY (kWaterDiag): alternate 20 s buzzing / 20 s silent so
+      // the WATERDIAG log can compare detection with and without the motor.
+      if (kWaterDiag) {
+        final on = DateTime.now().difference(diagStart).inSeconds % 40 < 20;
+        // ignore: avoid_print
+        print('WATERDIAG vib=${on ? 1 : 0} t=${DateTime.now().millisecondsSinceEpoch}');
+        if (!on) return;
+      }
       try {
         Vibration.vibrate(duration: 450, amplitude: 160);
       } catch (_) {}

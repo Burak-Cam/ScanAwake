@@ -449,3 +449,39 @@ int accumulateWaterHold(int heldMs, bool matched, int dtMs) {
 /// MIS-04: the water mission is complete once accumulated [heldMs] reaches
 /// [kWaterHoldMs].
 bool waterComplete(int heldMs) => heldMs >= kWaterHoldMs;
+
+/// DIAGNOSTIC BUILD SWITCH (2026-10-10): `flutter build apk --dart-define=WATER_DIAG=true`.
+/// When on, the su mission logs every inference (`WATERDIAG` in logcat), never
+/// completes, and the mission vibration alternates 20 s on / 20 s off so one
+/// device session measures both conditions. FALSE in every normal build.
+const bool kWaterDiag = bool.fromEnvironment('WATER_DIAG');
+
+/// MIS-04 DEVICE FINDING (Redmi Note 9S, 2026-10-10, WATERDIAG log): a FULLY
+/// open tap is heard by YAMNet as HISS, not water — top classes Snake / Hiss /
+/// Steam / Spray / Sizzle with the water classes only intermittent (~19% of
+/// windows cleared the floor). The same tap turned DOWN read Water tap ~0.9 +
+/// Sink ~0.85 and cleared it on ~100% of windows. No clipping (peak <= 0.2),
+/// and vibration made no difference.
+/// These hiss classes are deliberately NOT counted as water — a person going
+/// "sssss" at the mic from bed would trigger them. They only drive a UI nudge
+/// ("turn the water down a bit") via [waterTooForceful].
+const Set<int> kWaterHissClassIndices = {
+  79, // Hiss
+  129, // Snake
+  290, // Steam
+  447, // Spray
+  484, // Sizzle
+};
+
+/// Grouped hiss score at/above which the mission suggests turning the tap down.
+/// Device log: full-open windows mostly sat at 0.3-1.0; low-flow and the
+/// hair dryer stayed well below.
+const double kWaterHissNudge = 0.3;
+
+/// MIS-04: true iff the sound is hiss-like enough ([kWaterHissClassIndices]
+/// >= [kWaterHissNudge]) while NOT already counted as water — i.e. "there is
+/// probably a tap, but it is open too hard". UI hint only; never affects the
+/// hold accumulator. Pure + TFLite-free.
+bool waterTooForceful(List<double> scores, double grouped) =>
+    grouped < kWaterConfidence &&
+    waterGroupedScore(scores, kWaterHissClassIndices) >= kWaterHissNudge;
