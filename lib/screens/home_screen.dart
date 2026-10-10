@@ -82,6 +82,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  // CR-03 follow-up (2026-10-10, Android 12 emulator): revoking the exact-alarm
+  // permission silently CANCELS this app's alarms while the list still shows
+  // them active, and re-granting does not restore them until a cold restart.
+  // Re-checked on every foreground (see _checkExactAlarmHealth).
+  late final AppLifecycleListener _lifecycle;
+  bool _exactWasDenied = false;
+  bool _exactCheckBusy = false;
+  // Returning from the Settings page fires onResume AND completes the startup
+  // permission request — don't stack two identical warnings back to back.
+  DateTime? _exactWarnedAt;
+
   // Onboarding coach-mark targets (showcaseview). Highlighted once on first
   // launch in the barcode -> streak -> token -> add-alarm order.
   final GlobalKey _obBarcode = GlobalKey();
@@ -126,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    _lifecycle = AppLifecycleListener(onResume: _checkExactAlarmHealth);
     _bootstrap();
   }
 
@@ -159,6 +171,9 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       _checkBatteryOptimization();
     });
+    // CR-03 follow-up: the startup permission request above may have returned
+    // still denied — tell the user their active alarms will not ring.
+    _checkExactAlarmHealth();
     // FIX (emulator session 2026-10-10): a post-frame callback only runs when a
     // frame is actually rendered. By the time the awaits above finish, the
     // first frame has usually already been drawn and nothing else is pending,
@@ -241,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     alarmSubscription?.cancel();
     _fgbgSubscription?.cancel();
+    _lifecycle.dispose();
     try {
       ShowcaseView.get().unregister();
     } catch (_) {}
@@ -615,13 +631,70 @@ class _HomeScreenState extends State<HomeScreen> {
   // "close" action and an "Open Settings" action that deep-links to the system
   // permission page via openAppSettings(). barrierDismissible:false so the user
   // makes an explicit choice. context.mounted guard preserves async-safety.
-  Future<void> _showExactAlarmDialog() async {
+  // CR-03 follow-up: warn while the exact-alarm permission is missing and an
+  // alarm is active; re-arm every active alarm once it comes back. Never runs
+  // concurrently, and never re-arms while an alarm rings (Alarm.set on a
+  // ringing id would stop it). Best-effort: a failed check changes nothing.
+  Future<void> _checkExactAlarmHealth() async {
+    if (_exactCheckBusy || !mounted) return;
+    _exactCheckBusy = true;
+    try {
+      final granted = await defaultAlarmGateway.canScheduleExact();
+      final ringing = await Alarm.isRinging();
+      if (!mounted) return;
+      final action = decideExactAlarmAction(
+        granted: granted,
+        wasDenied: _exactWasDenied,
+        hasActive: alarms.any((a) => a.isActive),
+        ringing: ringing,
+      );
+      if (!granted) _exactWasDenied = true;
+      switch (action) {
+        case ExactAlarmAction.warn:
+          final last = _exactWarnedAt;
+          if (last != null &&
+              DateTime.now().difference(last) < const Duration(seconds: 5)) {
+            break;
+          }
+          _exactWarnedAt = DateTime.now();
+          await _showExactAlarmDialog(descKey: 'exact_alarm_revoked_desc');
+          _exactWarnedAt = DateTime.now();
+        case ExactAlarmAction.rearm:
+          var allOk = true;
+          for (final a in alarms.where((a) => a.isActive).toList()) {
+            final ok = await scheduleAlarmFn(
+              a.id,
+              _calculateAlarmDateTime(a.time, a.repeatDays),
+              true,
+              currentLang,
+              widget.currentRingtone,
+              a.label,
+              AlarmKind.real,
+              missionType: a.missionType,
+            );
+            allOk = allOk && ok;
+          }
+          if (allOk) {
+            _exactWasDenied = false;
+            if (mounted) _showSnack(AppStrings.get('exact_alarm_restored', currentLang));
+          }
+        case ExactAlarmAction.none:
+          if (granted) _exactWasDenied = false;
+      }
+    } catch (_) {
+      // Best-effort health check — never let it break the home screen.
+    } finally {
+      _exactCheckBusy = false;
+    }
+  }
+
+  Future<void> _showExactAlarmDialog({String descKey = 'exact_alarm_desc'}) async {
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: Text(AppStrings.get('exact_alarm_title', currentLang)),
-        content: Text(AppStrings.get('exact_alarm_desc', currentLang)),
+        content: Text(AppStrings.get(descKey, currentLang)),
         actions: [
           TextButton(
             onPressed: () { if (context.mounted) Navigator.pop(context); },
