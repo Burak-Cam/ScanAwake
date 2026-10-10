@@ -3,7 +3,9 @@ package com.burakcam.uyan
 import android.content.Context
 import android.media.AudioManager
 import android.os.Build
+import android.os.Bundle
 import android.view.WindowManager
+import androidx.lifecycle.Observer
 import com.gdelataillade.alarm.services.AlarmRingingLiveData
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -36,6 +38,56 @@ class MainActivity : FlutterActivity() {
     // ringFlowActive mirrors RingScreen's lifetime (keepScreenOn true/false is
     // already called exactly at its initState/dispose).
     private var ringFlowActive = false
+
+    // FIX (pin-prompt-on-ring, 2026-10-10, device-reported on MIUI): the alarm
+    // plugin's own ringing observer (AlarmPlugin.notificationObserver) calls
+    // KeyguardManager.requestDismissKeyguard() when the alarm starts. On a
+    // secure lock that opens the PIN/fingerprint bouncer ON TOP of the ring
+    // screen — the alarm is only reachable after a "back" gesture. This app
+    // already removed requestDismissKeyguard from its Stage-2 path for exactly
+    // this reason (see showOverLockscreen); Stage 1 still got it from the
+    // plugin. We replace the plugin's observer with one that does the same
+    // show-over-keyguard work WITHOUT asking to unlock: showWhenLocked +
+    // turnScreenOn alone is device-verified on MIUI (Stage 2 runs that way).
+    // On ringing=false the flags are released only when idle (see
+    // releaseLockscreenIfIdle) instead of unconditionally — so Stage 2 no
+    // longer depends on winning the old postValue(false) race either.
+    private val ringingObserver = Observer<Boolean> { ringing ->
+        if (ringing == true) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                try {
+                    setShowWhenLocked(true)
+                    setTurnScreenOn(true)
+                } catch (_: Exception) {
+                }
+            }
+        } else {
+            releaseLockscreenIfIdle()
+        }
+    }
+
+    // The plugin registers its observer in onAttachedToActivity, which runs
+    // inside FlutterActivity.onCreate. Drop every observer bound to this
+    // activity (the plugin's included) and install ours. Idempotent; re-run on
+    // onStart in case the plugin re-attached. LiveData only dispatches once the
+    // activity is STARTED, so the plugin's observer never fires in between.
+    private fun takeOverRingingObserver() {
+        try {
+            AlarmRingingLiveData.instance.removeObservers(this)
+            AlarmRingingLiveData.instance.observe(this, ringingObserver)
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        takeOverRingingObserver()
+    }
+
+    override fun onStart() {
+        takeOverRingingObserver()
+        super.onStart()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
