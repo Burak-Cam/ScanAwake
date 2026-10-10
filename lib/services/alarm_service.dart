@@ -3,18 +3,13 @@ import 'dart:io' show Platform;
 
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
-import 'package:flutter/services.dart' show MethodChannel;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
+import 'native_channel.dart';
 import 'prefs_service.dart';
-
-/// The app's existing native channel (MainActivity). The name is shared with
-/// the lock-screen / volume / keep-screen-on helpers ON PURPOSE — do not
-/// rename it and do not open a second channel; add methods instead.
-const MethodChannel _nativeChannel = MethodChannel('com.burakcam.uyan/keyguard');
 
 /// TST-02 / RESEARCH A2: a thin injectable seam over the static `Alarm` API.
 /// This is the ONLY place that touches `Alarm.set` / `Alarm.stop`, so the
@@ -74,7 +69,7 @@ class AlarmGateway {
   Future<bool> exactAlarmOpDenied() async {
     if (!Platform.isAndroid) return false;
     try {
-      return await _nativeChannel.invokeMethod<bool>('exactAlarmOpDenied') ??
+      return await kNativeChannel.invokeMethod<bool>('exactAlarmOpDenied') ??
           false;
     } catch (_) {
       return false;
@@ -92,7 +87,7 @@ class AlarmGateway {
 Future<bool> openExactAlarmSettings() async {
   if (!Platform.isAndroid) return false;
   try {
-    return await _nativeChannel.invokeMethod<bool>('openExactAlarmSettings') ??
+    return await kNativeChannel.invokeMethod<bool>('openExactAlarmSettings') ??
         false;
   } catch (_) {
     return false;
@@ -167,17 +162,80 @@ Future<bool> scheduleAlarmFn(
 /// now declared in the manifest, so the warning actually fires — without this
 /// a TR user would get the plugin's English default (TR/EN parity).
 /// Best-effort: the kill warning is a hint, not on the alarm-setting path, so
-/// any error is swallowed. Plugin limitation: if the service is already
-/// running, the new text takes effect on the next `Alarm.set`. NOT called from
+/// any error is swallowed.
+///
+/// Review 2026-10-10 #1: a single plugin call used to STOP a running service
+/// without restarting it (see [refreshKillWarning]) — after every cold start
+/// (Alarm.init starts it with the English default) and every language change
+/// the warning was off. The refresh is now sequenced on the service's real
+/// state, so afterwards it runs with the text in [lang] whenever an alarm is
+/// stored (the plugin starts it only then). Calls are serialized: a cold start
+/// and a quick language change never interleave. NOT called from
 /// [scheduleAlarmFn] (funnel and its gateway mocks stay untouched).
-Future<void> applyKillWarningText(String lang) async {
+Future<void> applyKillWarningText(String lang) {
+  final next = _killWarningQueue.then((_) async {
+    try {
+      await refreshKillWarning(
+        isRunning: _killWarningServiceRunning,
+        apply: () => Alarm.setWarningNotificationOnKill(
+          AppStrings.get('kill_warning_title', lang),
+          AppStrings.get('kill_warning_body', lang),
+        ),
+      );
+    } catch (_) {
+      // Best-effort — never let the kill-warning text break startup.
+    }
+  });
+  _killWarningQueue = next;
+  return next;
+}
+
+/// Serializes [applyKillWarningText] calls (each waits for the previous one).
+Future<void> _killWarningQueue = Future<void>.value();
+
+/// Review 2026-10-10 #1: the plugin's `setWarningNotificationOnKill`
+/// (alarm 5.1.5 AlarmApiImpl.kt:102-109) stores the text, stops the
+/// NotificationOnKillService if `isRunning`, then starts it — but
+/// `isRunning` only flips false in the service's onDestroy, which runs AFTER
+/// that main-thread call returns, so the start returns early and the service
+/// stays stopped. Sequence it: read the real state, [apply]; if it was not
+/// running that single call already started it with the new text. If it was
+/// running, poll (at most [maxPolls] × [step]) until it has really stopped,
+/// then [apply] again — the stop is a no-op and the start runs with the new
+/// text. On timeout nothing more is done: a second call on a still-running
+/// service would just stop it again. Pure orchestration, unit-pinned by
+/// kill_warning_test.dart.
+Future<void> refreshKillWarning({
+  required Future<bool> Function() isRunning,
+  required Future<void> Function() apply,
+  Future<void> Function(Duration)? sleep,
+  int maxPolls = 20,
+  Duration step = const Duration(milliseconds: 100),
+}) async {
+  final doSleep = sleep ?? (d) => Future<void>.delayed(d);
+  final wasRunning = await isRunning();
+  await apply();
+  if (!wasRunning) return;
+  for (var i = 0; i < maxPolls; i++) {
+    await doSleep(step);
+    if (!await isRunning()) {
+      await apply();
+      return;
+    }
+  }
+}
+
+/// MainActivity reads the plugin's `NotificationOnKillService.isRunning`.
+/// Off Android or on any error: false — which degrades to a single plugin
+/// call (exactly the previous behavior).
+Future<bool> _killWarningServiceRunning() async {
+  if (!Platform.isAndroid) return false;
   try {
-    await Alarm.setWarningNotificationOnKill(
-      AppStrings.get('kill_warning_title', lang),
-      AppStrings.get('kill_warning_body', lang),
-    );
+    return await kNativeChannel
+            .invokeMethod<bool>('killWarningServiceRunning') ??
+        false;
   } catch (_) {
-    // Best-effort — never let the kill-warning text break startup.
+    return false;
   }
 }
 

@@ -18,6 +18,7 @@ import '../models/alarm_entity.dart';
 import '../models/enums.dart';
 import '../services/alarm_volume_controller.dart';
 import '../services/camera_handoff.dart';
+import '../services/native_channel.dart';
 import '../services/prefs_service.dart';
 import '../services/streak_service.dart';
 
@@ -140,15 +141,14 @@ class _RingScreenState extends State<RingScreen> {
   // surface behind the keyguard. This native call (MainActivity) re-enables
   // showWhenLocked/turnScreenOn so Stage 2 stays visible over the lock screen,
   // exactly like Stage 1 was (no keyguard dismiss — see MainActivity comment).
-  static const MethodChannel _keyguardChannel =
-      MethodChannel('com.burakcam.uyan/keyguard');
+  // The call goes over the app's single native channel (kNativeChannel).
 
   // Best-effort screen-on toggle. Detached and swallowed on purpose: this is a
   // comfort/robustness measure, never a precondition for dismissing the alarm.
   // On a platform failure the pre-existing behaviour (screen may time out) stands.
   static void _setKeepScreenOn(bool on) {
     unawaited(
-      _keyguardChannel
+      kNativeChannel
           .invokeMethod(on ? 'keepScreenOn' : 'releaseScreenOn')
           .catchError((_) => null),
     );
@@ -163,7 +163,7 @@ class _RingScreenState extends State<RingScreen> {
   // channel failure (e.g. iOS) must never trap the user.
   Future<void> _showOverLockscreen() async {
     try {
-      await _keyguardChannel.invokeMethod('showOverLockscreen');
+      await kNativeChannel.invokeMethod('showOverLockscreen');
     } catch (_) {
       // No-op: not available on this platform / engine; the mission still runs.
     }
