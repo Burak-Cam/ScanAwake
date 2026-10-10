@@ -378,11 +378,32 @@ const int kWaterThrottleMs = 750;
 /// while the ducked-alarm baseline fires NONE of them (grouped 0.00). Hiss /
 /// Steam / Snake (shower spray) were deliberately EXCLUDED — they also fire on
 /// non-water sounds and would erode the false-positive guard.
+///
+/// EXTENDED (2026-10-10, device finding + offline evidence): on the Redmi a
+/// FULLY open tap peaked at only ~40% on the 4-class set and never filled the
+/// bar. Offline runs of this exact model show why: real running/pouring water
+/// puts most of its probability on LIQUID classes the old set ignored —
+/// Liquid ~0.35, Drip ~0.36, Pour/Fill ~0.14 vs the counted Water ~0.31. Adding
+/// them took pouring water from a 32% to an 88% window hit rate (fill 12 s ->
+/// 3 s) and a toilet flush from never to 3 s. Every added class scored ~0
+/// (<= 0.07) on pink/white noise, vacuum, engine, wind, washing machine,
+/// snoring and breathing, so the fan guard is unchanged (noise still NEVER
+/// fills). Waterfall / Stream / Hiss / Steam / Rain / Ocean / Waves stay OUT:
+/// loud pink noise alone scores Waterfall 0.71. Scripts:
+/// .planning/quick/261010-kns-*/ (yam.py, sim.py) + scratch cand.py/sim2.py.
 const Set<int> kWaterClassIndices = {
   282, // Water
   364, // Water tap, faucet
   365, // Sink (filling or washing)
   366, // Bathtub (filling or washing)
+  368, // Toilet flush
+  438, // Liquid
+  439, // Splash, splatter
+  442, // Drip
+  443, // Pour
+  444, // Trickle, dribble
+  445, // Gush
+  446, // Fill (with liquid)
 };
 
 /// MIS-04 / D-05: CONCEPT AGGREGATION — sums ONLY the scores at the indices in
@@ -428,3 +449,39 @@ int accumulateWaterHold(int heldMs, bool matched, int dtMs) {
 /// MIS-04: the water mission is complete once accumulated [heldMs] reaches
 /// [kWaterHoldMs].
 bool waterComplete(int heldMs) => heldMs >= kWaterHoldMs;
+
+/// DIAGNOSTIC BUILD SWITCH (2026-10-10): `flutter build apk --dart-define=WATER_DIAG=true`.
+/// When on, the su mission logs every inference (`WATERDIAG` in logcat), never
+/// completes, and the mission vibration alternates 20 s on / 20 s off so one
+/// device session measures both conditions. FALSE in every normal build.
+const bool kWaterDiag = bool.fromEnvironment('WATER_DIAG');
+
+/// MIS-04 DEVICE FINDING (Redmi Note 9S, 2026-10-10, WATERDIAG log): a FULLY
+/// open tap is heard by YAMNet as HISS, not water — top classes Snake / Hiss /
+/// Steam / Spray / Sizzle with the water classes only intermittent (~19% of
+/// windows cleared the floor). The same tap turned DOWN read Water tap ~0.9 +
+/// Sink ~0.85 and cleared it on ~100% of windows. No clipping (peak <= 0.2),
+/// and vibration made no difference.
+/// These hiss classes are deliberately NOT counted as water — a person going
+/// "sssss" at the mic from bed would trigger them. They only drive a UI nudge
+/// ("turn the water down a bit") via [waterTooForceful].
+const Set<int> kWaterHissClassIndices = {
+  79, // Hiss
+  129, // Snake
+  290, // Steam
+  447, // Spray
+  484, // Sizzle
+};
+
+/// Grouped hiss score at/above which the mission suggests turning the tap down.
+/// Device log: full-open windows mostly sat at 0.3-1.0; low-flow and the
+/// hair dryer stayed well below.
+const double kWaterHissNudge = 0.3;
+
+/// MIS-04: true iff the sound is hiss-like enough ([kWaterHissClassIndices]
+/// >= [kWaterHissNudge]) while NOT already counted as water — i.e. "there is
+/// probably a tap, but it is open too hard". UI hint only; never affects the
+/// hold accumulator. Pure + TFLite-free.
+bool waterTooForceful(List<double> scores, double grouped) =>
+    grouped < kWaterConfidence &&
+    waterGroupedScore(scores, kWaterHissClassIndices) >= kWaterHissNudge;

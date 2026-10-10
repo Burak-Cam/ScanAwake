@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -114,6 +115,11 @@ class _WaterViewState extends State<_WaterView>
   // Live-feedback readout: the grouped water score (0..100%) of the most recent
   // inference, for the "Su algılandı %X" line.
   int _groupedPct = 0;
+
+  // DEVICE FINDING 2026-10-10: a fully open tap reads as HISS to YAMNet. When
+  // that happens (see waterTooForceful) the readout asks the user to turn the
+  // tap down instead of silently never filling. UI only.
+  bool _tooStrong = false;
 
   // D-10: drives the detection-reactive ripple animation (0..1) — gives the
   // "listening" feel without a camera preview.
@@ -288,7 +294,11 @@ class _WaterViewState extends State<_WaterView>
       _lastTick = now;
       _heldMs = accumulateWaterHold(_heldMs, matched, dtMs);
 
-      if (waterComplete(_heldMs)) {
+      if (kWaterDiag) _logDiag(scores, grouped, matched);
+
+      // Diagnostic builds never complete, so one session can collect data
+      // across tap on/off and vibration on/off (exit via emergency stop).
+      if (!kWaterDiag && waterComplete(_heldMs)) {
         _finish();
         return;
       }
@@ -298,6 +308,7 @@ class _WaterViewState extends State<_WaterView>
         _progress = (_heldMs / kWaterHoldMs).clamp(0.0, 1.0);
         _groupedPct = (grouped * 100).clamp(0, 100).round();
         _rippleLevel = grouped.clamp(0.0, 1.0);
+        _tooStrong = waterTooForceful(scores, grouped);
       });
     } catch (_) {
       // malformed chunk / native TFLite exception — skip this tick. The dismiss
@@ -305,6 +316,30 @@ class _WaterViewState extends State<_WaterView>
     } finally {
       _isBusy = false;
     }
+  }
+
+  // DIAGNOSTIC ONLY (kWaterDiag, off in every normal build): one logcat line
+  // per inference — level, clipping, top-5 YAMNet classes, grouped score — so
+  // a device session shows what the phone's mic path actually feeds the model
+  // instead of guessing from offline recordings.
+  void _logDiag(List<double> scores, double grouped, bool matched) {
+    double sumSq = 0, peak = 0;
+    int clipped = 0;
+    for (final s in _waveform) {
+      final a = s.abs();
+      sumSq += s * s;
+      if (a > peak) peak = a;
+      if (a >= 0.99) clipped++;
+    }
+    final rms = math.sqrt(sumSq / _waveform.length);
+    final idx = List<int>.generate(scores.length, (i) => i)
+      ..sort((a, b) => scores[b].compareTo(scores[a]));
+    final top = idx.take(5).map((i) => '$i:${scores[i].toStringAsFixed(2)}').join(' ');
+    // ignore: avoid_print
+    print('WATERDIAG t=${DateTime.now().millisecondsSinceEpoch} '
+        'rms=${rms.toStringAsFixed(3)} peak=${peak.toStringAsFixed(2)} '
+        'clip=$clipped grp=${grouped.toStringAsFixed(2)} '
+        'hit=${matched ? 1 : 0} held=$_heldMs top=[$top]');
   }
 
   // Completion: hand control back to the host FIRST, then tear the mic +
@@ -448,9 +483,11 @@ class _WaterViewState extends State<_WaterView>
                   // Grouped water score (the value the bar uses) or "Dinleniyor..."
                   // when nothing is detected yet.
                   Text(
-                    _groupedPct > 0
-                        ? '${AppStrings.get('mission_water_detected', lang)} %$_groupedPct'
-                        : AppStrings.get('mission_water_listening', lang),
+                    _tooStrong
+                        ? AppStrings.get('mission_water_too_strong', lang)
+                        : _groupedPct > 0
+                            ? '${AppStrings.get('mission_water_detected', lang)} %$_groupedPct'
+                            : AppStrings.get('mission_water_listening', lang),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.amber,

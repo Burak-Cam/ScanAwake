@@ -26,9 +26,19 @@ void main() {
     test('kWaterThrottleMs is 750 (~1Hz YAMNet cadence)', () {
       expect(kWaterThrottleMs, 750);
     });
-    test('kWaterClassIndices is the SC-4 device-calibrated water set', () {
-      // Water, Water tap/faucet, Sink, Bathtub (AudioSet/YAMNet indices).
-      expect(kWaterClassIndices, {282, 364, 365, 366});
+    test('kWaterClassIndices is the water set (SC-4 core + 2026-10-10 liquid set)', () {
+      // SC-4 core: Water, Water tap/faucet, Sink, Bathtub. 2026-10-10: Toilet
+      // flush, Liquid, Splash, Drip, Pour, Trickle, Gush, Fill (AudioSet/YAMNet).
+      expect(kWaterClassIndices,
+          {282, 364, 365, 366, 368, 438, 439, 442, 443, 444, 445, 446});
+    });
+
+    test('noise-prone water-ish classes stay EXCLUDED (fan bypass guard)', () {
+      // Offline YAMNet: loud pink noise (fan proxy) scores Waterfall 0.71 and
+      // Stream 0.14; Hiss/Steam also fire on non-water. Never add these.
+      for (final i in const [79, 286, 287, 290, 283, 288, 289]) {
+        expect(kWaterClassIndices.contains(i), isFalse, reason: 'index $i');
+      }
     });
     test('kWaterHoldMs >= 2 * kWaterThrottleMs (>=2 detections required)', () {
       // A single false-positive throttled tick can never complete the mission.
@@ -175,6 +185,37 @@ void main() {
     test('kWaterMaxTickMs is 1500 and stays below kWaterHoldMs', () {
       expect(kWaterMaxTickMs, 1500);
       expect(kWaterMaxTickMs < kWaterHoldMs, isTrue);
+    });
+  });
+
+  // DEVICE FINDING 2026-10-10 (Redmi WATERDIAG log): a full-open tap reads as
+  // hiss. The hiss classes drive a UI nudge only and must never count as water.
+  group('waterTooForceful (full-open tap nudge)', () {
+    List<double> scoresWith(Map<int, double> m) {
+      final s = List<double>.filled(521, 0.0);
+      m.forEach((i, v) => s[i] = v);
+      return s;
+    }
+
+    test('hiss classes are disjoint from the water set', () {
+      expect(kWaterHissClassIndices.intersection(kWaterClassIndices), isEmpty);
+    });
+
+    test('device full-open window (Snake 0.26, Hiss 0.20, Steam 0.15) nudges', () {
+      final s = scoresWith({129: 0.26, 79: 0.20, 290: 0.15, 365: 0.20, 364: 0.15});
+      final g = waterGroupedScore(s, kWaterClassIndices);
+      expect(waterTooForceful(s, g), isTrue);
+    });
+
+    test('device low-flow window (tap 0.89, sink 0.85) does NOT nudge', () {
+      final s = scoresWith({364: 0.89, 365: 0.85, 282: 0.59, 361: 0.11});
+      final g = waterGroupedScore(s, kWaterClassIndices);
+      expect(waterTooForceful(s, g), isFalse);
+    });
+
+    test('hiss alone never counts toward the hold (no sssss-from-bed bypass)', () {
+      final s = scoresWith({79: 0.9, 129: 0.9, 290: 0.9, 447: 0.9, 484: 0.9});
+      expect(hasWaterMatch(s, kWaterClassIndices, kWaterConfidence), isFalse);
     });
   });
 }
