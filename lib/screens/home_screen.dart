@@ -650,14 +650,19 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!granted) _exactWasDenied = true;
       switch (action) {
-        case ExactAlarmAction.warn:
+        // F-2: the battery-exemption warning shares the revoked warning's
+        // 5 s debounce; only the description differs.
+        case ExactAlarmAction.warn || ExactAlarmAction.warnExempt:
           final last = _exactWarnedAt;
           if (last != null &&
               DateTime.now().difference(last) < const Duration(seconds: 5)) {
             break;
           }
           _exactWarnedAt = DateTime.now();
-          await _showExactAlarmDialog(descKey: 'exact_alarm_revoked_desc');
+          await _showExactAlarmDialog(
+              descKey: action == ExactAlarmAction.warnExempt
+                  ? 'exact_alarm_exempt_desc'
+                  : 'exact_alarm_revoked_desc');
           _exactWarnedAt = DateTime.now();
         case ExactAlarmAction.rearm:
           var allOk = true;

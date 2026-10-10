@@ -203,7 +203,7 @@ DateTime calculateAlarmDateTime(TimeOfDay time, List<int> repeatDays) {
 
 /// CR-03 follow-up (2026-10-10, Android 12 emulator): what to do about the
 /// exact-alarm permission when the app comes to the foreground.
-enum ExactAlarmAction { none, warn, rearm }
+enum ExactAlarmAction { none, warn, warnExempt, rearm }
 
 /// Revoking "Alarms & reminders" makes Android CANCEL every exact alarm this
 /// app set (measured: dumpsys alarm went 1 -> 0, reason
@@ -215,15 +215,31 @@ enum ExactAlarmAction { none, warn, rearm }
 /// - permission back after we saw it missing + an active alarm + nothing
 ///   ringing -> [ExactAlarmAction.rearm] (re-schedule; never while ringing,
 ///   because Alarm.set on a ringing id would stop that alarm);
+/// - raw permission switched off but still effective + an active alarm +
+///   nothing ringing -> [ExactAlarmAction.warnExempt] (see F-2 below);
 /// - otherwise nothing.
+///
+/// F-2 (2026-10-10, Redmi Note 9S / Android 12): an app on the battery
+/// optimization allowlist (deviceidle) is EXEMPT from SCHEDULE_EXACT_ALARM.
+/// Switching the permission off then cancels nothing and
+/// canScheduleExactAlarms() keeps returning true (dumpsys alarm:
+/// exactAllowReason=allow-listed). If the exemption is later removed (by the
+/// user or the OS), the pending alarm cannot start its foreground service and
+/// drops SILENTLY (device evidence: ForegroundServiceStartNotAllowedException).
+/// [rawDenied] = the raw app-op is explicitly denied. Re-arming wins over the
+/// exempt warning (the warning surfaces on the next foreground check), and
+/// nothing is shown while an alarm is ringing. [rawDenied] defaults to false,
+/// which is exactly the pre-F-2 behavior.
 ExactAlarmAction decideExactAlarmAction({
   required bool granted,
   required bool wasDenied,
   required bool hasActive,
   required bool ringing,
+  bool rawDenied = false,
 }) {
   if (!hasActive) return ExactAlarmAction.none;
   if (!granted) return ExactAlarmAction.warn;
   if (wasDenied && !ringing) return ExactAlarmAction.rearm;
+  if (rawDenied && !ringing) return ExactAlarmAction.warnExempt;
   return ExactAlarmAction.none;
 }

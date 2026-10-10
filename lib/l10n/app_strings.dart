@@ -118,6 +118,16 @@ class AppStrings {
       'en': 'The "Alarms & reminders" permission is OFF.\n\nAndroid has therefore cancelled your alarms — even though they look active here, they WILL NOT RING.\n\nOnce you turn the permission back on, your alarms are re-armed automatically.'
     },
     'exact_alarm_restored': {'tr': '✅ İzin açıldı — alarmların yeniden kuruldu', 'en': '✅ Permission granted — your alarms are re-armed'},
+    // CR-03 takip (F-2/F-3, TR/EN eşitliği).
+    'exact_alarm_exempt_desc': {
+      'tr': '"Alarm ve hatırlatıcı ayarlama" izni KAPALI.\n\nAlarmların şu an yalnızca uygulama pil optimizasyonundan muaf olduğu için çalışıyor. Bu muafiyet kalkarsa (sen ya da telefon kaldırırsa) alarmların SESSİZCE ÇALMAZ.\n\nLütfen izni aç.',
+      'en': 'The "Alarms & reminders" permission is OFF.\n\nYour alarms only work right now because the app is exempt from battery optimization. If that exemption is removed (by you or by the phone), your alarms will SILENTLY NOT RING.\n\nPlease turn the permission on.'
+    },
+    'kill_warning_title': {'tr': 'Alarmların çalmayabilir', 'en': 'Your alarms may not ring'},
+    'kill_warning_body': {
+      'tr': 'ScanAwake kapatıldı. Alarmlarının güvenle çalması için uygulamayı yeniden aç.',
+      'en': 'ScanAwake was closed. Reopen the app so your alarms can ring reliably.'
+    },
     'exact_alarm_desc': {
       'tr': 'Alarmın tam zamanında ve güvenilir şekilde çalabilmesi için '
             '"Alarm ve hatırlatıcı ayarlama" (kesin alarm) iznine ihtiyacımız var.\n\n'
