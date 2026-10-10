@@ -336,6 +336,22 @@ int accumulateObjectHold(int heldMs, bool matched, int dtMs) {
 /// [kObjectHoldMs].
 bool objectComplete(int heldMs) => heldMs >= kObjectHoldMs;
 
+/// Review 2026-10-10 #4: byte size of the bundled
+/// `assets/ml/object_labeler.tflite`. The on-disk model cache is accepted only
+/// at exactly this size, so a truncated file left by a build from before the
+/// atomic copy is re-copied instead of being accepted forever. Measuring the
+/// asset at runtime (rootBundle.load) would pull 18.6 MB onto the Dart heap at
+/// every mission start (LMK risk on the low-RAM Redmi) — hence a constant,
+/// pinned to the real asset by object_model_cache_test.dart. If the model is
+/// replaced, update this; if the replacement has the SAME size, also rename
+/// the cache file (ObjectMission._kModelCacheName).
+const int kObjectModelBytes = 18582189;
+
+/// Review 2026-10-10 #4: is a cached model of [cachedLength] bytes the whole
+/// bundled model?
+bool objectModelCacheValid(int cachedLength) =>
+    cachedLength == kObjectModelBytes;
+
 /// MIS-04 [ASSUMED]: grouped "running water" confidence floor (0..N — the SUM of
 /// the YAMNet water-class scores via [waterGroupedScore], D-05/D-06). The
 /// kObjectConfidence analog but a grouped-sum, not a single-label confidence.
