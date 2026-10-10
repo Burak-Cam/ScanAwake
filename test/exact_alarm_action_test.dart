@@ -69,6 +69,22 @@ void main() {
     });
   });
 
+  // Review 2026-10-10 #2: `ringing` now means "a ring flow is active" (plugin
+  // ringing OR RingScreen Stage 1/2 OR the dismiss tail). Nothing is shown or
+  // re-armed then — a dialog over RingScreen would swallow its pop, and
+  // "Open Settings" would background the app under a live escape watch.
+  group('ring flow suppresses everything', () {
+    test('denied while a ring flow is active -> none (no dialog)', () {
+      expect(d(granted: false, ringing: true), ExactAlarmAction.none);
+    });
+
+    test('denied + wasDenied + rawDenied while ringing -> none', () {
+      expect(
+          d(granted: false, wasDenied: true, rawDenied: true, ringing: true),
+          ExactAlarmAction.none);
+    });
+  });
+
   group('CR-03 takip metinleri', () {
     test('new keys exist in TR and EN and differ', () {
       for (final key in const [

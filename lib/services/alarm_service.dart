@@ -30,6 +30,11 @@ class AlarmGateway {
 
   Future<void> stop(int id) => Alarm.stop(id);
 
+  /// Review 2026-10-10 #3: every alarm in the plugin's own Dart store. An OS
+  /// exact-alarm revoke cancels the AlarmManager entries but does NOT delete
+  /// these records, so they are the source of truth for what is pending.
+  Future<List<AlarmSettings>> storedAlarms() => Alarm.getAlarms();
+
   /// RLS-04 / D-03: injectable exact-alarm permission seam. Returns whether the
   /// OS currently grants `SCHEDULE_EXACT_ALARM` (Android 14 default-DENIED; can
   /// be revoked any time). The funnel ([scheduleAlarmFn]) consults this BEFORE
@@ -286,9 +291,17 @@ enum ExactAlarmAction { none, warn, warnExempt, rearm }
 /// user or the OS), the pending alarm cannot start its foreground service and
 /// drops SILENTLY (device evidence: ForegroundServiceStartNotAllowedException).
 /// [rawDenied] = the raw app-op is explicitly denied. Re-arming wins over the
-/// exempt warning (the warning surfaces on the next foreground check), and
-/// nothing is shown while an alarm is ringing. [rawDenied] defaults to false,
-/// which is exactly the pre-F-2 behavior.
+/// exempt warning (the warning surfaces on the next foreground check).
+/// [rawDenied] defaults to false, which is exactly the pre-F-2 behavior.
+///
+/// Review 2026-10-10 #2: [ringing] means "a ring flow is active" — the plugin
+/// is ringing OR RingScreen is up (Stage 1 or the Stage-2 mission, where
+/// `Alarm.isRinging()` is already false) OR the dismiss tail is still running.
+/// NOTHING is done then, not even the warning: (a) a dialog on top of
+/// RingScreen swallows RingScreen's own `Navigator.pop`, (b) "Open Settings"
+/// backgrounds the app while the escape watch is live (a false cheat verdict),
+/// (c) `Alarm.set` on the ringing id would stop that alarm. The caller re-runs
+/// the check once the flow ends.
 ExactAlarmAction decideExactAlarmAction({
   required bool granted,
   required bool wasDenied,
@@ -297,8 +310,53 @@ ExactAlarmAction decideExactAlarmAction({
   bool rawDenied = false,
 }) {
   if (!hasActive) return ExactAlarmAction.none;
+  if (ringing) return ExactAlarmAction.none;
   if (!granted) return ExactAlarmAction.warn;
-  if (wasDenied && !ringing) return ExactAlarmAction.rearm;
-  if (rawDenied && !ringing) return ExactAlarmAction.warnExempt;
+  if (wasDenied) return ExactAlarmAction.rearm;
+  if (rawDenied) return ExactAlarmAction.warnExempt;
   return ExactAlarmAction.none;
+}
+
+/// Review 2026-10-10 #3: the transient alarms (snooze / restart re-fires —
+/// ids that are not entity ids) a permission revoke cancelled and a re-grant
+/// must restore. Entities are excluded: they are re-scheduled through the
+/// funnel with a freshly computed date. Past alarms are excluded too — that
+/// includes the one ringing right now (its dateTime is in the past), and
+/// `Alarm.set` on it would stop it. [minLead] keeps the restart re-fire
+/// (now+100 ms) out: the plugin arms such short delays with a Handler, not
+/// AlarmManager, so the revoke never cancelled it and re-setting it would
+/// ring twice.
+List<AlarmSettings> transientAlarmsToRestore(
+  Iterable<AlarmSettings> stored, {
+  required Set<int> entityIds,
+  required DateTime now,
+  Duration minLead = const Duration(seconds: 2),
+}) {
+  final earliest = now.add(minLead);
+  return stored
+      .where((a) => !entityIds.contains(a.id) && a.dateTime.isAfter(earliest))
+      .toList();
+}
+
+/// Review 2026-10-10 #3: re-set the pending transient alarms verbatim (same
+/// id + payload, so the snooze kind and the mission survive). Not routed
+/// through [scheduleAlarmFn] because the settings already exist; the gateway
+/// is still the only thing touching `Alarm.set`, and the same exact-alarm
+/// gate applies first. Returns false (nothing read, nothing set) when the
+/// permission is still missing.
+Future<bool> restoreTransientAlarms({
+  required Set<int> entityIds,
+  AlarmGateway gateway = defaultAlarmGateway,
+  DateTime? now,
+}) async {
+  if (!await gateway.canScheduleExact()) return false;
+  final pending = transientAlarmsToRestore(
+    await gateway.storedAlarms(),
+    entityIds: entityIds,
+    now: now ?? DateTime.now(),
+  );
+  for (final s in pending) {
+    await gateway.set(s);
+  }
+  return true;
 }
