@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.os.Build
 import android.view.WindowManager
+import com.gdelataillade.alarm.services.AlarmRingingLiveData
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,6 +25,17 @@ class MainActivity : FlutterActivity() {
     // (setShowWhenLocked only, never dismissing it), so Stage 2 must do the same:
     // setShowWhenLocked(true) + setTurnScreenOn(true) ONLY, no keyguard dismiss.
     private val channelName = "com.burakcam.uyan/keyguard"
+
+    // FIX (lockscreen-leak, 2026-10-10, device-reported): the manifest declares
+    // showWhenLocked/turnScreenOn statically (kept on purpose — a cold-start
+    // alarm must surface over the keyguard), and Stage 2 re-asserts them via
+    // showOverLockscreen(). Nothing ever turned them back OFF when no alarm was
+    // ringing, so with the app in the foreground, power-off -> power-on showed
+    // the full app OVER the lock screen without PIN/fingerprint: alarms could be
+    // disabled and barcodes deleted on a locked phone.
+    // ringFlowActive mirrors RingScreen's lifetime (keepScreenOn true/false is
+    // already called exactly at its initState/dispose).
+    private var ringFlowActive = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -71,11 +83,14 @@ class MainActivity : FlutterActivity() {
                     // also simply correct UX: the alarm screen must not sleep while it
                     // is asking the user to do something.
                     "keepScreenOn" -> {
+                        ringFlowActive = true
                         setKeepScreenOn(true)
                         result.success(true)
                     }
                     "releaseScreenOn" -> {
+                        ringFlowActive = false
                         setKeepScreenOn(false)
+                        releaseLockscreenIfIdle()
                         result.success(true)
                     }
                     else -> result.notImplemented()
@@ -111,6 +126,28 @@ class MainActivity : FlutterActivity() {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
+        } catch (_: Exception) {
+        }
+    }
+
+    // Screen-off pauses the activity: the moment to drop the over-keyguard
+    // flags so the next screen-on shows the keyguard, not the app.
+    override fun onPause() {
+        super.onPause()
+        releaseLockscreenIfIdle()
+    }
+
+    // Clear showWhenLocked/turnScreenOn unless an alarm is ringing or the
+    // dismiss flow (RingScreen, Stage 1 or 2) is on screen. While ringing, the
+    // alarm plugin's own observer sets them TRUE again on every ringing=true
+    // transition, so clearing here can never hide a later alarm. Best-effort.
+    private fun releaseLockscreenIfIdle() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return
+        if (ringFlowActive) return
+        if (AlarmRingingLiveData.instance.value == true) return
+        try {
+            setShowWhenLocked(false)
+            setTurnScreenOn(false)
         } catch (_: Exception) {
         }
     }
