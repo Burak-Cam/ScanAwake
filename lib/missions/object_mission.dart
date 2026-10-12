@@ -192,14 +192,19 @@ class _ObjectViewState extends State<_ObjectView> with WidgetsBindingObserver {
   // labeler then failed forever and Nesne could never be completed on that
   // install (emergency stop the only exit). Writing to a temp file and renaming
   // it into place means the final path either holds the whole model or nothing.
-  // NOTE: the cache is keyed by file name only — if the bundled model ever
-  // changes, bump [_kModelCacheName] or existing installs keep the old model.
+  // Review 2026-10-10 #4: the cache is accepted only at the bundled model's
+  // exact byte size (kObjectModelBytes, pinned to the asset by a unit test),
+  // so a truncated file from a pre-atomic build is re-copied (the rename below
+  // overwrites it). NOTE: if the bundled model is replaced by one of the SAME
+  // size, bump [_kModelCacheName] or existing installs keep the old model.
   static const String _kModelCacheName = 'object_labeler.tflite';
 
   Future<String> _copyAssetModel() async {
     final dir = await getApplicationSupportDirectory();
     final file = File('${dir.path}/$_kModelCacheName');
-    if (await file.exists() && await file.length() > 0) return file.path;
+    if (await file.exists() && objectModelCacheValid(await file.length())) {
+      return file.path;
+    }
     final data = await rootBundle.load('assets/ml/object_labeler.tflite');
     final tmp = File('${file.path}.tmp');
     await tmp.writeAsBytes(

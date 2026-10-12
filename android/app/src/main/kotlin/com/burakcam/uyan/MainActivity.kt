@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.view.WindowManager
 import androidx.lifecycle.Observer
 import com.gdelataillade.alarm.services.AlarmRingingLiveData
+import com.gdelataillade.alarm.services.NotificationOnKillService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -161,9 +162,27 @@ class MainActivity : FlutterActivity() {
                     "openExactAlarmSettings" -> {
                         result.success(openExactAlarmSettings())
                     }
+                    // Review 2026-10-10 #1: is the plugin's kill-warning service
+                    // running right now? See killWarningServiceRunning().
+                    "killWarningServiceRunning" -> {
+                        result.success(killWarningServiceRunning())
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    // Review 2026-10-10 #1: the alarm plugin's setWarningNotificationOnKill
+    // stops a running NotificationOnKillService and then tries to start it in
+    // the same main-thread step; the start returns early because isRunning
+    // stays true until onDestroy, so the service ends up stopped. Dart reads
+    // this flag to sequence the restart (refreshKillWarning). Read-only.
+    private fun killWarningServiceRunning(): Boolean {
+        return try {
+            NotificationOnKillService.isRunning
+        } catch (_: Exception) {
+            false
+        }
     }
 
     // ENG-01 (sov-02): read the current alarm-stream volume, then push it to max

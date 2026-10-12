@@ -92,6 +92,17 @@ class _HomeScreenState extends State<HomeScreen> {
   // Returning from the Settings page fires onResume AND completes the startup
   // permission request — don't stack two identical warnings back to back.
   DateTime? _exactWarnedAt;
+  // Review 2026-10-10 #2: ring-listener iterations in flight (start -> RingScreen
+  // push/pop -> dismiss tail, incl. the restart cool-down). `Alarm.isRinging()`
+  // is already false during the Stage-2 mission, so it cannot be the guard.
+  int _activeRingHandlers = 0;
+  bool get _ringFlowActive => _activeRingHandlers > 0;
+  // A health check skipped because a ring flow was active runs once when the
+  // flow ends (see the listener's finally).
+  bool _exactCheckDeferred = false;
+  // Review 2026-10-10 #6: onResume checks wait until the startup dialog
+  // sequence has finished (it runs the check itself, in order).
+  bool _startupChecksDone = false;
 
   // Onboarding coach-mark targets (showcaseview). Highlighted once on first
   // launch in the barcode -> streak -> token -> add-alarm order.
@@ -137,7 +148,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    _lifecycle = AppLifecycleListener(onResume: _checkExactAlarmHealth);
+    _lifecycle = AppLifecycleListener(onResume: () {
+      if (_startupChecksDone) _checkExactAlarmHealth();
+    });
     _bootstrap();
   }
 
@@ -155,25 +168,36 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadPreferences();
     await _checkPermissions();
     _startAlarmListener();
+    // Review 2026-10-10 #6: the exact-alarm check runs INSIDE this sequence —
+    // after the streak-save dialog, before the battery dialog — so startup
+    // dialogs never stack. The startup permission request fires onResume;
+    // those checks are skipped until the sequence is done (it checks last
+    // itself). If a ring flow is active the check defers itself (#2).
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prefs = PrefsService(await SharedPreferences.getInstance());
-      if (!mounted) return;
-      // First launch: run the onboarding tour and skip the other prompts this
-      // launch (the battery dialog shows on the next launch, no overlap).
-      if (!prefs.onboardingSeen) {
-        await prefs.setOnboardingSeen(true);
+      try {
+        final prefs = PrefsService(await SharedPreferences.getInstance());
         if (!mounted) return;
-        ShowcaseView.get().startShowCase(
-            [_obBarcode, _obStreak, _obToken, _obAddAlarm]);
-        return;
+        // First launch: run the onboarding tour and skip the other prompts this
+        // launch (the battery dialog shows on the next launch, no overlap).
+        // No active alarm exists yet; the next onResume checks.
+        if (!prefs.onboardingSeen) {
+          await prefs.setOnboardingSeen(true);
+          if (!mounted) return;
+          ShowcaseView.get().startShowCase(
+              [_obBarcode, _obStreak, _obToken, _obAddAlarm]);
+          return;
+        }
+        await _offerStreakSaveIfBroken();
+        if (!mounted) return;
+        // CR-03 follow-up: the startup permission request may have returned
+        // still denied — tell the user their active alarms will not ring.
+        await _checkExactAlarmHealth();
+        if (!mounted) return;
+        _checkBatteryOptimization();
+      } finally {
+        _startupChecksDone = true;
       }
-      await _offerStreakSaveIfBroken();
-      if (!mounted) return;
-      _checkBatteryOptimization();
     });
-    // CR-03 follow-up: the startup permission request above may have returned
-    // still denied — tell the user their active alarms will not ring.
-    _checkExactAlarmHealth();
     // FIX (emulator session 2026-10-10): a post-frame callback only runs when a
     // frame is actually rendered. By the time the awaits above finish, the
     // first frame has usually already been drawn and nothing else is pending,
@@ -306,13 +330,19 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<bool> _rearmIfRepeating(int index) async {
     if (index == -1) return true;
     if (alarms[index].repeatDays.isEmpty) return true;
-    final nextTime = _calculateAlarmDateTime(alarms[index].time, alarms[index].repeatDays);
+    return _scheduleEntity(alarms[index]);
+  }
+
+  /// Review 2026-10-10 #8: the single entity scheduling call (next occurrence,
+  /// stable entity id, AlarmKind.real) shared by [_rearmIfRepeating] and the
+  /// exact-alarm re-arm loop. Returns the funnel's gate result.
+  Future<bool> _scheduleEntity(AlarmEntity a) {
     // ENG-03 / MIS-01: carry the alarm's persisted mission into the re-arm.
     // scheduleAlarmFn's missionType defaults to none, so omitting it here would
     // silently DOWNGRADE a repeating Lümen alarm to MissionType.none on every
     // re-fire (losing its mission forever). A repeating Lümen alarm MUST re-arm
-    // AS Lümen — hence the explicit pass of alarms[index].missionType.
-    return scheduleAlarmFn(alarms[index].id, nextTime, true, currentLang, widget.currentRingtone, alarms[index].label, AlarmKind.real, missionType: alarms[index].missionType);
+    // AS Lümen — hence the explicit pass of a.missionType.
+    return scheduleAlarmFn(a.id, _calculateAlarmDateTime(a.time, a.repeatDays), true, currentLang, widget.currentRingtone, a.label, AlarmKind.real, missionType: a.missionType);
   }
 
   void _startAlarmListener() {
@@ -334,6 +364,9 @@ class _HomeScreenState extends State<HomeScreen> {
       // Pitfall 1 replay guard: ignore an alarm the native layer is no longer
       // actually ringing (stale ValueStream replay after dismiss).
       if (!await Alarm.isRinging(alarmSettings.id)) continue;
+      // Review 2026-10-10 #2: this iteration IS a ring flow until its finally.
+      _activeRingHandlers++;
+      try {
       final prefs = PrefsService(await SharedPreferences.getInstance());
       await prefs.setRinging(true);
       // D-01b: record the wall-clock start of the ringing window (boot-guard
@@ -546,6 +579,15 @@ class _HomeScreenState extends State<HomeScreen> {
         await _stopEscapeWatch();
         await prefs.setEscapeDetected(false);
       }
+      } finally {
+        // Every exit (incl. the body's early returns and exceptions) ends this
+        // flow; a health check skipped during it runs once now.
+        _activeRingHandlers--;
+        if (_activeRingHandlers == 0 && _exactCheckDeferred && mounted) {
+          _exactCheckDeferred = false;
+          unawaited(_checkExactAlarmHealth());
+        }
+      }
       } // end for (alarmSettings in alarmSet.alarms)
     });
   }
@@ -640,20 +682,35 @@ class _HomeScreenState extends State<HomeScreen> {
     _exactCheckBusy = true;
     try {
       final granted = await defaultAlarmGateway.canScheduleExact();
-      final ringing = await Alarm.isRinging();
+      // Review 2026-10-10 #2: a ring flow (listener in flight — RingScreen
+      // Stage 1/2 or the dismiss tail) OR the plugin ringing before the
+      // listener picked it up. Nothing is shown or re-armed then.
+      final ringFlow = _ringFlowActive || await Alarm.isRinging();
       // F-2: only ask for the raw app-op when the permission looks granted
       // (an effective denial is already handled by `warn`).
-      final rawDenied =
-          granted && await defaultAlarmGateway.exactAlarmOpDenied();
+      final rawDenied = granted &&
+          !ringFlow &&
+          await defaultAlarmGateway.exactAlarmOpDenied();
+      // Review 2026-10-10 #3: a pending snooze counts as an active alarm too
+      // (a fired one-shot alarm is inactive while its snooze still waits).
+      var hasActive = alarms.any((a) => a.isActive);
+      if (!hasActive) {
+        hasActive = transientAlarmsToRestore(
+          await defaultAlarmGateway.storedAlarms(),
+          entityIds: alarms.map((a) => a.id).toSet(),
+          now: DateTime.now(),
+        ).isNotEmpty;
+      }
       if (!mounted) return;
       final action = decideExactAlarmAction(
         granted: granted,
         wasDenied: _exactWasDenied,
-        hasActive: alarms.any((a) => a.isActive),
-        ringing: ringing,
+        hasActive: hasActive,
+        ringing: ringFlow,
         rawDenied: rawDenied,
       );
       if (!granted) _exactWasDenied = true;
+      if (ringFlow) _exactCheckDeferred = true;
       switch (action) {
         // F-2: the battery-exemption warning shares the revoked warning's
         // 5 s debounce; only the description differs.
@@ -671,20 +728,25 @@ class _HomeScreenState extends State<HomeScreen> {
           _exactWarnedAt = DateTime.now();
         case ExactAlarmAction.rearm:
           var allOk = true;
+          var interrupted = false;
           for (final a in alarms.where((a) => a.isActive).toList()) {
-            final ok = await scheduleAlarmFn(
-              a.id,
-              _calculateAlarmDateTime(a.time, a.repeatDays),
-              true,
-              currentLang,
-              widget.currentRingtone,
-              a.label,
-              AlarmKind.real,
-              missionType: a.missionType,
-            );
+            // A ring may start mid-loop: Alarm.set on its id would stop it.
+            if (_ringFlowActive || await Alarm.isRinging()) {
+              _exactCheckDeferred = true;
+              interrupted = true;
+              break;
+            }
+            final ok = await _scheduleEntity(a);
             allOk = allOk && ok;
           }
-          if (allOk) {
+          // Review 2026-10-10 #3: the revoke also cancelled pending transient
+          // (snooze / restart) alarms — restore them verbatim.
+          if (!interrupted) {
+            allOk = allOk &&
+                await restoreTransientAlarms(
+                    entityIds: alarms.map((a) => a.id).toSet());
+          }
+          if (!interrupted && allOk) {
             _exactWasDenied = false;
             if (mounted) _showSnack(AppStrings.get('exact_alarm_restored', currentLang));
           }
@@ -728,6 +790,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+    // Review 2026-10-10 #2/#6: the dismiss-path (CR-02) dialog and the
+    // deferred post-flow warning share the 5 s debounce — never two identical
+    // dialogs back to back.
+    _exactWarnedAt = DateTime.now();
   }
 
   // RLS-04 / D-03: catch the funnel signal. Runs the schedule thunk; if it

@@ -18,6 +18,7 @@ import '../models/alarm_entity.dart';
 import '../models/enums.dart';
 import '../services/alarm_volume_controller.dart';
 import '../services/camera_handoff.dart';
+import '../services/native_channel.dart';
 import '../services/prefs_service.dart';
 import '../services/streak_service.dart';
 
@@ -140,15 +141,14 @@ class _RingScreenState extends State<RingScreen> {
   // surface behind the keyguard. This native call (MainActivity) re-enables
   // showWhenLocked/turnScreenOn so Stage 2 stays visible over the lock screen,
   // exactly like Stage 1 was (no keyguard dismiss — see MainActivity comment).
-  static const MethodChannel _keyguardChannel =
-      MethodChannel('com.burakcam.uyan/keyguard');
+  // The call goes over the app's single native channel (kNativeChannel).
 
   // Best-effort screen-on toggle. Detached and swallowed on purpose: this is a
   // comfort/robustness measure, never a precondition for dismissing the alarm.
   // On a platform failure the pre-existing behaviour (screen may time out) stands.
   static void _setKeepScreenOn(bool on) {
     unawaited(
-      _keyguardChannel
+      kNativeChannel
           .invokeMethod(on ? 'keepScreenOn' : 'releaseScreenOn')
           .catchError((_) => null),
     );
@@ -163,7 +163,7 @@ class _RingScreenState extends State<RingScreen> {
   // channel failure (e.g. iOS) must never trap the user.
   Future<void> _showOverLockscreen() async {
     try {
-      await _keyguardChannel.invokeMethod('showOverLockscreen');
+      await kNativeChannel.invokeMethod('showOverLockscreen');
     } catch (_) {
       // No-op: not available on this platform / engine; the mission still runs.
     }
@@ -290,30 +290,38 @@ class _RingScreenState extends State<RingScreen> {
   }
 
   void _handleEmergencyStop() async {
-    // FIX (checkup-260711 WR-01): cheap early returns before any side effect.
-    // - _exited: another exit already popped — there is nothing left to stop.
-    // - _missionDone: the mission-success chain is running; the alarm is
-    //   already stopped, so emergency has nothing to stop and racing it would
-    //   only demote a success into an emergency.
-    // - isLocked && missionType == none: the barcode scan ALREADY succeeded and
-    //   the success tail is in its 2s delay — don't let emergency drop that
-    //   success. NOTE: on the mission path isLocked is true for the WHOLE
-    //   mission, so this condition is limited to missionType == none —
-    //   emergency stays reachable during a mission (D-13 preserved).
-    if (_exited) return;
-    if (_missionDone) return;
-    if (isLocked && widget.missionType == MissionType.none) return;
-
-    // DECISION (review 2026-10-10): read BEFORE this handler sets isLocked
-    // below — at this point isLocked is true only if the barcode was scanned
-    // (the mission path keeps it true for the whole Stage 2).
-    final bool streakBroken = emergencyBreaksStreak(
-      widget.alarmKind,
-      barcodeScanned: isLocked,
-    );
+    // FIX (checkup-260711 WR-01): cheap early returns before any side effect
+    // (exited / mission-success chain / scanned no-mission success tail — the
+    // reasons live on decideEmergencyStop). isLocked is read BEFORE this
+    // handler sets it below, so here it is true only if the barcode was
+    // scanned (the mission path keeps it true for the whole Stage 2).
+    final hasMission = widget.missionType != MissionType.none;
+    if (decideEmergencyStop(
+          exited: _exited,
+          missionDone: _missionDone,
+          scanned: isLocked,
+          hasMission: hasMission,
+          kind: widget.alarmKind,
+        ) ==
+        EmergencyStep.abort) {
+      return;
+    }
 
     final prefs = PrefsService(await SharedPreferences.getInstance());
     await prefs.setRinging(false);
+    // Review 2026-10-10 #5: re-decide with the state AFTER the awaits — a
+    // barcode scanned meanwhile no longer resets the streak (and a winning
+    // exit keeps its pop/reward; the is_ringing=false write is idempotent
+    // with every exit path).
+    final step = decideEmergencyStop(
+      exited: _exited,
+      missionDone: _missionDone,
+      scanned: isLocked,
+      hasMission: hasMission,
+      kind: widget.alarmKind,
+    );
+    if (step == EmergencyStep.abort) return;
+    final bool streakBroken = step == EmergencyStep.stopBreakStreak;
     // Skipping the barcode on a real wake breaks the streak (tokens kept).
     // DETACHED like every other award write here: the prefs cache updates
     // synchronously, and the exit must never wait on a wedged platform thread.

@@ -3,18 +3,13 @@ import 'dart:io' show Platform;
 
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
-import 'package:flutter/services.dart' show MethodChannel;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/alarm_entity.dart';
 import '../models/enums.dart';
+import 'native_channel.dart';
 import 'prefs_service.dart';
-
-/// The app's existing native channel (MainActivity). The name is shared with
-/// the lock-screen / volume / keep-screen-on helpers ON PURPOSE — do not
-/// rename it and do not open a second channel; add methods instead.
-const MethodChannel _nativeChannel = MethodChannel('com.burakcam.uyan/keyguard');
 
 /// TST-02 / RESEARCH A2: a thin injectable seam over the static `Alarm` API.
 /// This is the ONLY place that touches `Alarm.set` / `Alarm.stop`, so the
@@ -29,6 +24,11 @@ class AlarmGateway {
       Alarm.set(alarmSettings: alarmSettings);
 
   Future<void> stop(int id) => Alarm.stop(id);
+
+  /// Review 2026-10-10 #3: every alarm in the plugin's own Dart store. An OS
+  /// exact-alarm revoke cancels the AlarmManager entries but does NOT delete
+  /// these records, so they are the source of truth for what is pending.
+  Future<List<AlarmSettings>> storedAlarms() => Alarm.getAlarms();
 
   /// RLS-04 / D-03: injectable exact-alarm permission seam. Returns whether the
   /// OS currently grants `SCHEDULE_EXACT_ALARM` (Android 14 default-DENIED; can
@@ -69,7 +69,7 @@ class AlarmGateway {
   Future<bool> exactAlarmOpDenied() async {
     if (!Platform.isAndroid) return false;
     try {
-      return await _nativeChannel.invokeMethod<bool>('exactAlarmOpDenied') ??
+      return await kNativeChannel.invokeMethod<bool>('exactAlarmOpDenied') ??
           false;
     } catch (_) {
       return false;
@@ -87,7 +87,7 @@ class AlarmGateway {
 Future<bool> openExactAlarmSettings() async {
   if (!Platform.isAndroid) return false;
   try {
-    return await _nativeChannel.invokeMethod<bool>('openExactAlarmSettings') ??
+    return await kNativeChannel.invokeMethod<bool>('openExactAlarmSettings') ??
         false;
   } catch (_) {
     return false;
@@ -162,17 +162,80 @@ Future<bool> scheduleAlarmFn(
 /// now declared in the manifest, so the warning actually fires — without this
 /// a TR user would get the plugin's English default (TR/EN parity).
 /// Best-effort: the kill warning is a hint, not on the alarm-setting path, so
-/// any error is swallowed. Plugin limitation: if the service is already
-/// running, the new text takes effect on the next `Alarm.set`. NOT called from
+/// any error is swallowed.
+///
+/// Review 2026-10-10 #1: a single plugin call used to STOP a running service
+/// without restarting it (see [refreshKillWarning]) — after every cold start
+/// (Alarm.init starts it with the English default) and every language change
+/// the warning was off. The refresh is now sequenced on the service's real
+/// state, so afterwards it runs with the text in [lang] whenever an alarm is
+/// stored (the plugin starts it only then). Calls are serialized: a cold start
+/// and a quick language change never interleave. NOT called from
 /// [scheduleAlarmFn] (funnel and its gateway mocks stay untouched).
-Future<void> applyKillWarningText(String lang) async {
+Future<void> applyKillWarningText(String lang) {
+  final next = _killWarningQueue.then((_) async {
+    try {
+      await refreshKillWarning(
+        isRunning: _killWarningServiceRunning,
+        apply: () => Alarm.setWarningNotificationOnKill(
+          AppStrings.get('kill_warning_title', lang),
+          AppStrings.get('kill_warning_body', lang),
+        ),
+      );
+    } catch (_) {
+      // Best-effort — never let the kill-warning text break startup.
+    }
+  });
+  _killWarningQueue = next;
+  return next;
+}
+
+/// Serializes [applyKillWarningText] calls (each waits for the previous one).
+Future<void> _killWarningQueue = Future<void>.value();
+
+/// Review 2026-10-10 #1: the plugin's `setWarningNotificationOnKill`
+/// (alarm 5.1.5 AlarmApiImpl.kt:102-109) stores the text, stops the
+/// NotificationOnKillService if `isRunning`, then starts it — but
+/// `isRunning` only flips false in the service's onDestroy, which runs AFTER
+/// that main-thread call returns, so the start returns early and the service
+/// stays stopped. Sequence it: read the real state, [apply]; if it was not
+/// running that single call already started it with the new text. If it was
+/// running, poll (at most [maxPolls] × [step]) until it has really stopped,
+/// then [apply] again — the stop is a no-op and the start runs with the new
+/// text. On timeout nothing more is done: a second call on a still-running
+/// service would just stop it again. Pure orchestration, unit-pinned by
+/// kill_warning_test.dart.
+Future<void> refreshKillWarning({
+  required Future<bool> Function() isRunning,
+  required Future<void> Function() apply,
+  Future<void> Function(Duration)? sleep,
+  int maxPolls = 20,
+  Duration step = const Duration(milliseconds: 100),
+}) async {
+  final doSleep = sleep ?? (d) => Future<void>.delayed(d);
+  final wasRunning = await isRunning();
+  await apply();
+  if (!wasRunning) return;
+  for (var i = 0; i < maxPolls; i++) {
+    await doSleep(step);
+    if (!await isRunning()) {
+      await apply();
+      return;
+    }
+  }
+}
+
+/// MainActivity reads the plugin's `NotificationOnKillService.isRunning`.
+/// Off Android or on any error: false — which degrades to a single plugin
+/// call (exactly the previous behavior).
+Future<bool> _killWarningServiceRunning() async {
+  if (!Platform.isAndroid) return false;
   try {
-    await Alarm.setWarningNotificationOnKill(
-      AppStrings.get('kill_warning_title', lang),
-      AppStrings.get('kill_warning_body', lang),
-    );
+    return await kNativeChannel
+            .invokeMethod<bool>('killWarningServiceRunning') ??
+        false;
   } catch (_) {
-    // Best-effort — never let the kill-warning text break startup.
+    return false;
   }
 }
 
@@ -286,9 +349,17 @@ enum ExactAlarmAction { none, warn, warnExempt, rearm }
 /// user or the OS), the pending alarm cannot start its foreground service and
 /// drops SILENTLY (device evidence: ForegroundServiceStartNotAllowedException).
 /// [rawDenied] = the raw app-op is explicitly denied. Re-arming wins over the
-/// exempt warning (the warning surfaces on the next foreground check), and
-/// nothing is shown while an alarm is ringing. [rawDenied] defaults to false,
-/// which is exactly the pre-F-2 behavior.
+/// exempt warning (the warning surfaces on the next foreground check).
+/// [rawDenied] defaults to false, which is exactly the pre-F-2 behavior.
+///
+/// Review 2026-10-10 #2: [ringing] means "a ring flow is active" — the plugin
+/// is ringing OR RingScreen is up (Stage 1 or the Stage-2 mission, where
+/// `Alarm.isRinging()` is already false) OR the dismiss tail is still running.
+/// NOTHING is done then, not even the warning: (a) a dialog on top of
+/// RingScreen swallows RingScreen's own `Navigator.pop`, (b) "Open Settings"
+/// backgrounds the app while the escape watch is live (a false cheat verdict),
+/// (c) `Alarm.set` on the ringing id would stop that alarm. The caller re-runs
+/// the check once the flow ends.
 ExactAlarmAction decideExactAlarmAction({
   required bool granted,
   required bool wasDenied,
@@ -297,8 +368,53 @@ ExactAlarmAction decideExactAlarmAction({
   bool rawDenied = false,
 }) {
   if (!hasActive) return ExactAlarmAction.none;
+  if (ringing) return ExactAlarmAction.none;
   if (!granted) return ExactAlarmAction.warn;
-  if (wasDenied && !ringing) return ExactAlarmAction.rearm;
-  if (rawDenied && !ringing) return ExactAlarmAction.warnExempt;
+  if (wasDenied) return ExactAlarmAction.rearm;
+  if (rawDenied) return ExactAlarmAction.warnExempt;
   return ExactAlarmAction.none;
+}
+
+/// Review 2026-10-10 #3: the transient alarms (snooze / restart re-fires —
+/// ids that are not entity ids) a permission revoke cancelled and a re-grant
+/// must restore. Entities are excluded: they are re-scheduled through the
+/// funnel with a freshly computed date. Past alarms are excluded too — that
+/// includes the one ringing right now (its dateTime is in the past), and
+/// `Alarm.set` on it would stop it. [minLead] keeps the restart re-fire
+/// (now+100 ms) out: the plugin arms such short delays with a Handler, not
+/// AlarmManager, so the revoke never cancelled it and re-setting it would
+/// ring twice.
+List<AlarmSettings> transientAlarmsToRestore(
+  Iterable<AlarmSettings> stored, {
+  required Set<int> entityIds,
+  required DateTime now,
+  Duration minLead = const Duration(seconds: 2),
+}) {
+  final earliest = now.add(minLead);
+  return stored
+      .where((a) => !entityIds.contains(a.id) && a.dateTime.isAfter(earliest))
+      .toList();
+}
+
+/// Review 2026-10-10 #3: re-set the pending transient alarms verbatim (same
+/// id + payload, so the snooze kind and the mission survive). Not routed
+/// through [scheduleAlarmFn] because the settings already exist; the gateway
+/// is still the only thing touching `Alarm.set`, and the same exact-alarm
+/// gate applies first. Returns false (nothing read, nothing set) when the
+/// permission is still missing.
+Future<bool> restoreTransientAlarms({
+  required Set<int> entityIds,
+  AlarmGateway gateway = defaultAlarmGateway,
+  DateTime? now,
+}) async {
+  if (!await gateway.canScheduleExact()) return false;
+  final pending = transientAlarmsToRestore(
+    await gateway.storedAlarms(),
+    entityIds: entityIds,
+    now: now ?? DateTime.now(),
+  );
+  for (final s in pending) {
+    await gateway.set(s);
+  }
+  return true;
 }

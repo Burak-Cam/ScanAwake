@@ -102,3 +102,38 @@ bool canSaveStreak(int tokens) => tokens >= kStreakSaveCost;
 /// Snooze tokens are untouched — only a genuine cheat ([decideCheat]) wipes them.
 bool emergencyBreaksStreak(AlarmKind kind, {required bool barcodeScanned}) =>
     kind != AlarmKind.test && !barcodeScanned;
+
+/// What an emergency-stop press should do (see [decideEmergencyStop]).
+enum EmergencyStep { abort, stop, stopBreakStreak }
+
+/// Review 2026-10-10 #5: the emergency-stop decision, pure so it can be
+/// re-evaluated. RingScreen calls it BEFORE its awaits and AGAIN after them
+/// with the current state — a barcode scanned while the handler was suspended
+/// must neither reset the streak nor steal the exit.
+///
+/// [EmergencyStep.abort] (checkup-260711 WR-01):
+/// - [exited]: another exit already popped — nothing left to stop (a second
+///   pop would remove HomeScreen underneath).
+/// - [missionDone]: the mission-success chain is running; the alarm is
+///   already stopped and racing it would demote a success into an emergency.
+/// - [scanned] without a mission: the barcode scan succeeded and the success
+///   tail is in its 2 s delay — that success owns the exit. On the mission
+///   path [scanned] stays true for the whole Stage 2, so emergency remains
+///   reachable during a mission (D-13).
+///
+/// Otherwise stop, breaking the streak per [emergencyBreaksStreak].
+/// [hasMission] is a bool (not MissionType) to keep this file free of extra
+/// imports.
+EmergencyStep decideEmergencyStop({
+  required bool exited,
+  required bool missionDone,
+  required bool scanned,
+  required bool hasMission,
+  required AlarmKind kind,
+}) {
+  if (exited || missionDone) return EmergencyStep.abort;
+  if (scanned && !hasMission) return EmergencyStep.abort;
+  return emergencyBreaksStreak(kind, barcodeScanned: scanned)
+      ? EmergencyStep.stopBreakStreak
+      : EmergencyStep.stop;
+}
